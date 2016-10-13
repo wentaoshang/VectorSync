@@ -12,15 +12,13 @@ namespace examples {
 
 class SimpleNode {
 public:
-  SimpleNode(const NodeID& nid, const Name& prefix, const ViewInfo& vinfo)
+  SimpleNode(const NodeID& nid, const Name& prefix)
     : face_(io_service_)
     , scheduler_(io_service_)
-    , node_(face_, key_chain_, nid, prefix,
-            std::bind(&SimpleNode::OnData, this, _1))
+    , node_(face_, scheduler_, key_chain_, nid, prefix,
+            std::bind(&SimpleNode::OnData, this, _1, _2))
     , rengine_(rdevice_())
-    , rdist_(200, 1000) {
-    node_.LoadView({1, "A"}, vinfo);
-  }
+    , rdist_(500, 10000) {}
 
   void Start() {
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
@@ -29,8 +27,8 @@ public:
   }
 
 private:
-  void OnData(std::shared_ptr<const Data> data) {
-    std::cout << "Recv: d.name=" << data->getName().toUri() << std::endl;
+  void OnData(const uint8_t* buf, size_t buf_size) {
+    std::cout << "Upcall OnData: content_size=" << buf_size << std::endl;
   }
 
   void PublishData() {
@@ -52,25 +50,15 @@ private:
 
 int main(int argc, char* argv[]) {
   // Create a simple view with three nodes
-  ViewInfo vinfo({{"A", Name("/test")}, {"B", Name("/test")}, {"C", Name("/test")}});
-  if (argc != 2) {
-    std::cerr << "Usage: " << argv[0] << " [A|B|C]" << std::endl;
+  if (argc != 3) {
+    std::cerr << "Usage: " << argv[0] << " [node_id] [node_prefix]" << std::endl;
     return -1;
   }
 
   NodeID nid = argv[1];
-  if (nid != "A" && nid != "B" && nid != "C") {
-    std::cerr << "Usage: " << argv[0] << " [A|B|C]" << std::endl;
-    return -1;
-  }
+  Name prefix(argv[2]);
 
-  auto index = vinfo.GetIndexByID(nid);
-  assert(index.second);
-
-  auto prefix = vinfo.GetPrefixByIndex(index.first);
-  assert(prefix.second);
-
-  SimpleNode node(nid, prefix.first, vinfo);
+  SimpleNode node(nid, prefix);
   node.Start();
   return 0;
 }

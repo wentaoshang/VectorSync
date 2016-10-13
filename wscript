@@ -21,11 +21,7 @@ def configure(conf):
     conf.check_cfg(package='libndn-cxx', args=['--cflags', '--libs'],
                    uselib_store='NDN_CXX', mandatory=True)
 
-    boost_libs = 'system log'
-    # if conf.options.with_tests:
-    #     conf.env['WITH_TESTS'] = 1
-    #     conf.define('WITH_TESTS', 1);
-    #     boost_libs += ' unit_test_framework'
+    boost_libs = 'system log unit_test_framework'
     conf.check_boost(lib=boost_libs)
 
 def build(bld):
@@ -34,9 +30,16 @@ def build(bld):
     bld.stlib(target = 'vsync',
               name = 'vsync',
               source = bld.path.ant_glob(['lib/*.cpp']),
-              use = 'NDN_CXX BOOST BOOST_LOG',
+              use = 'NDN_CXX BOOST',
               export_includes = 'lib',
               cxxflags = '-DBOOST_LOG_DYN_LINK')
+
+    bld.program(target = 'vsync-test',
+                name = 'vsync-test',
+                source = bld.path.ant_glob(['tests/*.cpp']),
+                includes = 'tests',
+                use = 'NDN_CXX BOOST vsync',
+                cxxflags = '-DBOOST_TEST_DYN_LINK')
 
     bld.program(target = 'simple',
                 name = 'simple',

@@ -22,6 +22,8 @@ inline std::string ToString(const ESN& s) {
 }
 
 inline bool IsNext(const ESN& i, const ESN& n) {
+  // Only need to compare the view number because a node cannot be in
+  // two different views with the same view number but diferent leaders.
   if (i.vi.first == n.vi.first) {
     if ((i.rn == n.rn && i.seq + 1 == n.seq) ||
         (i.rn + 1 == n.rn && i.seq == 255 && n.seq == 1))
@@ -57,15 +59,28 @@ inline std::string ToString(const VersionVector& v) {
 inline Name MakeVsyncInterestName(const ViewID& vid, uint64_t rn,
                                   const VersionVector& vv) {
   // name = /vsync_prefix/view_num/leader_id/round_num/version_vector
-  Name n(VsyncPrefix);
+  Name n(kVsyncPrefix);
   n.appendNumber(vid.first).append(vid.second)
     .appendNumber(rn).append(name::Component(vv.begin(), vv.end()));
+  return n;
+}
+
+inline Name MakeViewInfoName(const ViewID& vid) {
+  // name = /[vsync_prefix]/[view_num]/[leader_id]/vinfo
+  Name n(kVsyncPrefix);
+  n.appendNumber(vid.first).append(vid.second).append("vinfo");
   return n;
 }
 
 inline ViewID ExtractViewID(const Name& n) {
   uint64_t view_num = n.get(-4).toNumber();
   std::string leader_id = n.get(-3).toUri();
+  return {view_num, leader_id};
+}
+
+inline ViewID ExtractViewIDFromViewInfoName(const Name& n) {
+  uint64_t view_num = n.get(-3).toNumber();
+  std::string leader_id = n.get(-2).toUri();
   return {view_num, leader_id};
 }
 

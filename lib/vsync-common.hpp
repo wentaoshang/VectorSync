@@ -36,7 +36,17 @@ struct ESNCompare {
   }
 };
 
-static const Name VsyncPrefix = Name("/ndn/broadcast/vsync");
+static const Name kVsyncPrefix = Name("/ndn/broadcast/vsync");
+
+static constexpr time::seconds kHeartbeatInterval = time::seconds(4);
+static constexpr time::seconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
+static constexpr time::seconds kHealthcheckInterval = kHeartbeatInterval;
+// Leader election timeout MUST be smaller than healthcheck interval
+static constexpr time::seconds kLeaderElectionTimoutMax = time::seconds(3);
+
+// Leader will only perform view change when the number of dead members exceeds
+// kViewChangeThreadhold.
+static const size_t kViewChangeThreshold = 1;
 
 } // namespace vsync
 } // namespace ndn

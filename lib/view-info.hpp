@@ -4,13 +4,14 @@
 #define NDN_VSYNC_VIEW_INFO_HPP_
 
 #include <algorithm>
-#include <tuple>
+#include <exception>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <ndn-cxx/name.hpp>
 
-#include "vsync-common.hpp"
+#include "vsync-helper.hpp"
 
 namespace ndn {
 namespace vsync {
@@ -18,10 +19,26 @@ namespace vsync {
 struct MemberInfo {
   NodeID id;
   Name prefix;
+
+  friend bool operator==(const MemberInfo& l, const MemberInfo& r) {
+    return l.id == r.id && l.prefix == r.prefix;
+  }
 };
 
 class ViewInfo {
 public:
+  class Error : public std::exception {
+  public:
+    Error(const std::string& what) : what_(what) {}
+
+    virtual const char* what() const noexcept override {
+      return what_.c_str();
+    }
+
+  private:
+    std::string what_;
+  };
+
   /**
    * @brief Creates empty view info
    */
@@ -33,18 +50,25 @@ public:
    */
   explicit ViewInfo(const std::vector<MemberInfo>& member_list)
     : member_list_(member_list) {
-    // Convert node ID to a string that conforms to NDN URI scheme
     for (auto& m : member_list_) {
+      if (m.id.empty())
+        throw Error("Empty node ID in member list");
+      // Convert node ID to a string that conforms to NDN URI scheme
       m.id = name::Component(m.id).toUri();
+      //TODO: support encoding of node id longer than 255 bytes
+      if (m.id.size() > 255)
+        throw Error("Node ID longer than 255 bytes: " + m.id);
+      //TODO: support encoding of node prefix longer than 255 bytes
+      const auto& pfx = m.prefix.toUri();
+      if (pfx.size() > 255)
+        throw Error("Node prefix URI longger than 255 bytes: " + pfx);
     }
 
-    std::sort(member_list_.begin(), member_list_.end(),
-	      [](const MemberInfo& l, const MemberInfo& r) { return l.id < r.id; });
-    for (std::size_t i = 0; i < member_list_.size(); ++i) {
+    for (std::size_t i = 0; i != member_list_.size(); ++i) {
       const auto& id = member_list_[i].id;
       auto r = member_index_map_.insert({id, i});
       if (!r.second)
-	throw "Duplicate node ID in member list";
+	throw Error("Duplicate node ID in member list");
     }
   }
 
@@ -66,6 +90,88 @@ public:
 
   std::size_t Size() const {
     return member_list_.size();
+  }
+
+  std::vector<uint8_t> Encode() const {
+    std::vector<uint8_t> out;
+    for (const auto& m : member_list_) {
+      EncodeString(m.id, out);
+      EncodeString(m.prefix.toUri(), out);
+    }
+    return out;
+  }
+
+  bool Decode(const uint8_t* buf, size_t buf_size) {
+    std::vector<MemberInfo> minfo;
+    std::unordered_map<NodeID, NodeIndex> index_map;
+    NodeIndex idx = 0;
+
+    while (buf_size > 0) {
+      MemberInfo mi;
+      size_t r = DecodeString(buf, buf_size, &mi.id);
+      if (r == 0) return false;
+      if (mi.id.empty()) return false;
+      if (index_map.find(mi.id) != index_map.end()) return false;
+      buf += r;
+      buf_size -= r;
+      std::string p;
+      r = DecodeString(buf, buf_size, &p);
+      if (r == 0) return false;
+      buf += r;
+      buf_size -= r;
+      mi.prefix = Name(p);
+      index_map[mi.id] = idx++;
+      minfo.push_back(std::move(mi));
+    }
+
+    member_list_ = std::move(minfo);
+    member_index_map_ = std::move(index_map);
+    return true;
+  }
+
+  bool Merge(const ViewInfo& vinfo) {
+    auto old_size = Size();
+    for (const auto& m : vinfo.member_list_) {
+      if (member_index_map_.find(m.id) != member_index_map_.end())
+        // Node id already exists
+        continue;
+      member_list_.push_back(m);
+      member_index_map_[m.id] = member_list_.size() - 1;
+    }
+    return old_size != Size();
+  }
+
+  void Remove(const std::unordered_set<NodeID>& ids) {
+    auto iter = std::remove_if(member_list_.begin(), member_list_.end(),
+                               [&ids](const MemberInfo& m) {
+                                 return ids.find(m.id) != ids.end();
+                               });
+    if (iter == member_list_.end()) return;
+    member_list_.erase(iter, member_list_.end());
+
+    // Rebuild index map
+    member_index_map_.clear();
+    for (std::size_t i = 0; i != member_list_.size(); ++i) {
+      const auto& id = member_list_[i].id;
+      member_index_map_[id] = i;
+    }
+  }
+
+  friend bool operator==(const ViewInfo& lv, const ViewInfo& rv) {
+    return lv.member_list_ == rv.member_list_ &&
+      lv.member_index_map_ == rv.member_index_map_;
+  }
+
+  friend std::ostream& operator<<(std::ostream& out, const ViewInfo& vinfo) {
+    out << "ViewInfo(size=" << vinfo.Size();
+    for (size_t i = 0; i != vinfo.member_list_.size(); ++i) {
+      const auto& m = vinfo.member_list_[i];
+      auto iter = vinfo.member_index_map_.find(m.id);
+      if (iter == vinfo.member_index_map_.end())
+        throw Error("Cannot find node index for ID " + m.id);
+      out << "," << iter->second << "={" << m.id << "," << m.prefix.toUri() << "}";
+    }
+    return out << ")";
   }
 
 private:
