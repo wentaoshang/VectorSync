@@ -134,7 +134,7 @@ void Node::PublishViewInfo() {
   auto content = view_info_.Encode();
   std::shared_ptr<Data> d = std::make_shared<Data>(n);
   d->setFreshnessPeriod(time::seconds(3600));
-  d->setContent(&content[0], content.size());
+  d->setContent(content.data(), content.size());
   d->setContentType(kViewInfo);
   key_chain_.sign(*d, signingWithSha256());
   data_store_[n] = d;
@@ -158,7 +158,7 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
     EncodeLastDataInfo(last_data_info_, ldi_wire);
     std::shared_ptr<Data> d = std::make_shared<Data>(n);
     d->setFreshnessPeriod(time::seconds(3600));
-    d->setContent(&ldi_wire[0], ldi_wire.size());
+    d->setContent(ldi_wire.data(), ldi_wire.size());
     d->setContentType(kLastDataInfo);
     key_chain_.sign(*d, signingWithSha256());
     data_store_[n] = d;
@@ -173,7 +173,7 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
 
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(time::seconds(3600));
-  data->setContent(&content[0], content.size());
+  data->setContent(content.data(), content.size());
   data->setContentType(type);
   key_chain_.sign(*data, signingWithSha256());
   data_store_[n] = data;
@@ -288,7 +288,7 @@ void Node::OnSyncInterest(const Interest& interest) {
   // Generate sync reply to purge pending sync Interest
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(time::milliseconds(50));
-  data->setContent(&version_vector_[0], version_vector_.size());
+  data->setContent(version_vector_.data(), version_vector_.size());
   data->setContentType(kVsyncReply);
   key_chain_.sign(*data, signingWithSha256());
   face_.put(*data);

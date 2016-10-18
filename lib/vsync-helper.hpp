@@ -25,7 +25,7 @@ inline std::string ToString(const ESN& s) {
 
 inline VersionVector Merge(const VersionVector& v1, const VersionVector& v2) {
   if (v1.size() != v2.size())
-    throw "Cannot merge vectors of different sizes";
+    return {};
 
   VersionVector res(v1.size());
   std::transform(v1.begin(), v1.end(), v2.begin(), res.begin(),
