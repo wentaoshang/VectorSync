@@ -17,9 +17,8 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
   , key_chain_(key_chain)
   , id_(name::Component(nid).toUri())
   , prefix_(prefix)
-  , view_id_({0, nid})
+  , view_id_({1, nid})
   , view_info_({{nid, prefix}})
-  , last_data_info_({{0, "-"}, 0, 0})
   , data_cb_(std::move(on_data))
   , rengine_(rdevice_())
   , rdist_(100, time::milliseconds(kLeaderElectionTimoutMax).count())
@@ -185,6 +184,16 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
   SendSyncInterest();
 }
 
+void Node::SendDataInterest(const Name& prefix, const NodeID& nid, const ViewID& vid,
+                            uint64_t rn, uint64_t seq) {
+  auto in = MakeDataName(prefix, nid, vid, rn, seq);
+  Interest inst(in, time::milliseconds(1000));
+  BOOST_LOG_TRIVIAL(trace) << "Ftch: i.name=" << in.toUri();
+  face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
+                        [](const Interest&, const lp::Nack&) {},
+                        [](const Interest&) {});
+}
+
 void Node::OnDataInterest(const Interest& interest) {
   const auto& n = interest.getName();
   auto iter = data_store_.find(n);
@@ -198,23 +207,13 @@ void Node::OnDataInterest(const Interest& interest) {
 
 void Node::SendSyncInterest() {
   auto n = MakeVsyncInterestName(view_id_, round_number_, version_vector_);
-
   BOOST_LOG_TRIVIAL(trace) << "Send: vi = (" << view_id_.first << ","
                            << view_id_.second << "), rn = " << round_number_
                            << ", vv = " << ToString(version_vector_);
-
   Interest i(n, time::milliseconds(1000));
   face_.expressInterest(i, [](const Interest&, const Data&) {},
                         [](const Interest&, const lp::Nack&) {},
                         [](const Interest&) {});
-
-  // Generate sync reply to purge pending sync Interest
-  std::shared_ptr<Data> data = std::make_shared<Data>(n);
-  data->setFreshnessPeriod(time::milliseconds(50));
-  data->setContent(&version_vector_[0], version_vector_.size());
-  data->setContentType(kVsyncReply);
-  key_chain_.sign(*data, signingWithSha256());
-  face_.put(*data);
 }
 
 void Node::OnSyncInterest(const Interest& interest) {
@@ -286,6 +285,14 @@ void Node::OnSyncInterest(const Interest& interest) {
                            << view_id_.second << "), rn = " << round_number_
                            << ", vv = " << ToString(version_vector_);
 
+  // Generate sync reply to purge pending sync Interest
+  std::shared_ptr<Data> data = std::make_shared<Data>(n);
+  data->setFreshnessPeriod(time::milliseconds(50));
+  data->setContent(&version_vector_[0], version_vector_.size());
+  data->setContentType(kVsyncReply);
+  key_chain_.sign(*data, signingWithSha256());
+  face_.put(*data);
+
   for (size_t i = 0; i < vv.size(); ++i) {
     if (i == idx_) continue;
 
@@ -298,12 +305,7 @@ void Node::OnSyncInterest(const Interest& interest) {
       throw Error("Cannot get node prefix for index " + std::to_string(i));
 
     for (uint64_t seq = old_vv[i] + 1; seq <= vv[i]; ++seq) {
-      auto in = MakeDataName(pfx.first, nid.first, vi, rn, seq);
-      Interest inst(in, time::milliseconds(1000));
-      BOOST_LOG_TRIVIAL(trace) << "Ftch: i.name=" << in.toUri();
-      face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
-                            [](const Interest&, const lp::Nack&) {},
-                            [](const Interest&) {});
+      SendDataInterest(pfx.first, nid.first, vi, rn, seq);
     }
   }
 }
@@ -345,38 +347,51 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
   auto rn = ExtractRoundNumber(n);
   auto seq = ExtractSequenceNumber(n);
 
+  auto& win = member_state_[index].recv_window;
+
+  // Insert the new seq number into the receive window
+  BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << index
+                           << "]: vi=(" << vi.first << "," << vi.second
+                           << "),rn=" << rn << ",seq=" << seq;
+  win.Insert({vi, rn, seq});
+
+  // Check last data info
   if (seq == 1 || data.getContentType() == kLastDataInfo) {
     // Extract info about last data in the previous round
     const auto& content = data.getContent();
     auto p = DecodeLastDataInfo(content.value(), content.value_size());
     if (!p.second) {
-      BOOST_LOG_TRIVIAL(debug) << "Cannot decode last data info";
-    } else {
-      BOOST_LOG_TRIVIAL(trace) << "Recv last data info: " << ToString(p.first);
-      CheckForMissingData(p.first, index);
+      BOOST_LOG_TRIVIAL(debug) << "Cannot decode last data info from node idx "
+                               << index;
+      return;
+    }
+
+    auto ldi = p.first;
+    BOOST_LOG_TRIVIAL(trace) << "Recv last data info: " << ToString(ldi)
+                             << " from node idx " << index;
+
+    auto missing_seq_intervals = win.CheckForMissingData(ldi, vi, rn);
+    if (missing_seq_intervals.empty()) {
+      BOOST_LOG_TRIVIAL(debug) << "No missing data from node idx " << index
+                               << " for vid=(" << ldi.vi.first << ","
+                               << ldi.vi.second << "),rn=" << ldi.rn;
+      return;
+    }
+
+    // Fetch missing data in the previous round
+      auto nid = view_info_.GetIDByIndex(index);
+      if (!nid.second)
+        throw Error("Cannot get node ID for index " + std::to_string(index));
+
+      auto pfx = view_info_.GetPrefixByIndex(index);
+      if (!pfx.second)
+        throw Error("Cannot get node prefix for index " + std::to_string(index));
+
+    for (auto iter = boost::icl::elements_begin(missing_seq_intervals);
+         iter != boost::icl::elements_end(missing_seq_intervals); ++iter) {
+      SendDataInterest(pfx.first, nid.first, ldi.vi, ldi.rn, *iter);
     }
   }
-
-  // Add the new seq number into the receive window
-  auto& win = member_state_[index].recv_window;
-  ESN esn{vi, rn, seq};
-  BOOST_LOG_TRIVIAL(trace) << "Insert into recv window of node idx " << index
-                           << ": " << ToString(esn);
-  win.insert(esn);
-  // Try to slide the window forward
-  auto iter = win.begin();
-  auto inext = std::next(iter);
-  while (inext != win.end()) {
-    if (!IsNext(*iter, *inext)) break;
-    iter = inext;
-    inext = std::next(iter);
-  }
-  BOOST_LOG_TRIVIAL(trace) << "Slide recv window of node idx " << index << " from "
-                           << ToString(*win.begin()) << " to " << ToString(*iter);
-  win.erase(win.begin(), iter);
-}
-
-void Node::CheckForMissingData(const ESN& ldi, NodeIndex index) {
 }
 
 void Node::PublishHeartbeat() {

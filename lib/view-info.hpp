@@ -162,16 +162,16 @@ public:
       lv.member_index_map_ == rv.member_index_map_;
   }
 
-  friend std::ostream& operator<<(std::ostream& out, const ViewInfo& vinfo) {
-    out << "ViewInfo(size=" << vinfo.Size();
+  friend std::ostream& operator<<(std::ostream& os, const ViewInfo& vinfo) {
+    os << "ViewInfo(size=" << vinfo.Size();
     for (size_t i = 0; i != vinfo.member_list_.size(); ++i) {
       const auto& m = vinfo.member_list_[i];
       auto iter = vinfo.member_index_map_.find(m.id);
       if (iter == vinfo.member_index_map_.end())
         throw Error("Cannot find node index for ID " + m.id);
-      out << "," << iter->second << "={" << m.id << "," << m.prefix.toUri() << "}";
+      os << "," << iter->second << "={" << m.id << "," << m.prefix.toUri() << "}";
     }
-    return out << ")";
+    return os << ")";
   }
 
 private:

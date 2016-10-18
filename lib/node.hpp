@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 #include "ndn-common.hpp"
+#include "recv-window.hpp"
 #include "view-info.hpp"
 #include "vsync-common.hpp"
 
@@ -43,7 +44,8 @@ public:
   /**
    * @brief Creates a VSync node in a default view with itself as the only member.
    *        The node itself is set as the leader of the view, which has view ID
-   *        (1, @p nid).
+   *        (1, @p nid). View number and round number always starts from 1. 0 is
+   *        reserved for representing invalid view/round number.
    *
    * @param face       Reference to the Face object on which the node runs
    * @param scheduler  Reference to the scheduler associated with @p face
@@ -57,12 +59,6 @@ public:
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
-  void SetInitialRoundNumber(uint64_t rn) { round_number_ = rn; }
-
-  void SetInitialSequenceNumber(uint8_t seq) {
-    version_vector_[idx_] = seq;
-  }
-
   void PublishData(const std::vector<uint8_t>& content, uint32_t type = kUserData);
 
 private:
@@ -72,7 +68,7 @@ private:
   void ResetState() {
     idx_ = view_info_.GetIndexByID(id_).first;
     is_leader_ = view_id_.second == id_;
-    round_number_ = 0;
+    round_number_ = 1;
     version_vector_.clear();
     version_vector_.resize(view_info_.Size());
     member_state_.clear();
@@ -80,11 +76,14 @@ private:
     member_state_.resize(view_info_.Size(), {{}, now});
   }
 
-  void OnDataInterest(const Interest& interest);
-  void SendSyncInterest();
-  void PublishHeartbeat();
-  void ProcessHeartbeat(NodeIndex index);
+  inline void SendSyncInterest();
+  inline void SendDataInterest(const Name& prefix, const NodeID& nid,
+                        const ViewID& vid, uint64_t rn, uint64_t seq);
+  inline void PublishHeartbeat();
+  inline void ProcessHeartbeat(NodeIndex index);
+
   void OnSyncInterest(const Interest& interest);
+  void OnDataInterest(const Interest& interest);
   void OnRemoteData(const Data& data);
 
   /**
@@ -96,22 +95,13 @@ private:
    * @param index  Node index of the sender of @p data
    */
   void UpdateReceiveWindow(const Data& data, NodeIndex index);
-  /**
-   * @brief Checks for missing data in the receive window of node @p index
-   *        that are produced in the same view and the same round as @p ldi
-   *        and sends Interests to fetch them.
-   *
-   * @param ldi    Received last data info represented as ESN
-   * @param index  Node index of the sender
-   */
-  void CheckForMissingData(const ESN& ldi, NodeIndex index);
 
   void DoViewChange(const ViewID& vid);
   void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);
-  void PublishViewInfo();
+  inline void PublishViewInfo();
   void DoHealthcheck();
 
-  void ProcessLeaderElectionTimeout();
+  inline void ProcessLeaderElectionTimeout();
 
   Face& face_;
   Scheduler& scheduler_;
@@ -122,13 +112,13 @@ private:
   bool is_leader_ = true;
   ViewID view_id_;
   ViewInfo view_info_;
-  uint64_t round_number_ = 0;
+  uint64_t round_number_ = 1;
   VersionVector version_vector_;
 
-  ESN last_data_info_;
+  ESN last_data_info_ = {};
 
   struct MemberState {
-    std::set<ESN, ESNCompare> recv_window;
+    ReceiveWindow recv_window;
     time::steady_clock::TimePoint last_heartbeat;
   };
   std::vector<MemberState> member_state_;

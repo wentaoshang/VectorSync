@@ -16,20 +16,9 @@ namespace vsync {
 
 inline std::string ToString(const ESN& s) {
   std::ostringstream os;
-  os << '(' << s.vi.first << ',' << s.vi.second << ','
-     << s.rn << ',' << s.seq << ')';
+  os << "{(" << s.vi.first << ',' << s.vi.second << ")," << s.rn
+     << ',' << s.seq << '}';
   return os.str();
-}
-
-inline bool IsNext(const ESN& i, const ESN& n) {
-  // Only need to compare the view number because a node cannot be in
-  // two different views with the same view number but diferent leaders.
-  if (i.vi.first == n.vi.first) {
-    if ((i.rn == n.rn && i.seq + 1 == n.seq) ||
-        (i.rn + 1 == n.rn && i.seq == 255 && n.seq == 1))
-      return true;
-  }
-  return false;
 }
 
 // Helpers for version vector processing

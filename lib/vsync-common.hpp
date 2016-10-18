@@ -11,6 +11,9 @@
 #include <utility>
 #include <vector>
 
+#include <ndn-cxx/name.hpp>
+#include <ndn-cxx/util/time.hpp>
+
 namespace ndn {
 namespace vsync {
 
@@ -26,14 +29,6 @@ struct ESN {
   ViewID vi;
   uint64_t rn;
   uint64_t seq;
-};
-
-struct ESNCompare {
-  bool operator() (const ESN& l, const ESN& r) {
-    auto tl = std::make_tuple(l.vi.first, l.rn, l.seq);
-    auto tr = std::make_tuple(r.vi.first, r.rn, r.seq);
-    return tl < tr;
-  }
 };
 
 static const Name kVsyncPrefix = Name("/ndn/broadcast/vsync");

@@ -2,7 +2,6 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include <iostream>
 #include <string>
 
 #include <ndn-cxx/name.hpp>
