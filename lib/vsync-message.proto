@@ -1,0 +1,23 @@
+/* -*- Mode:protobuf; indent-tabs-mode:nil; -*- */
+
+syntax = "proto3";
+
+package ndn.vsync.proto;
+
+// Extended Sequence Number
+message ESN {
+  uint64 view_num = 1;
+  string leader_id = 2;
+  uint64 round_num = 3;
+  uint64 seq_num = 4;
+}
+
+// View Info
+message ViewInfo {
+  message Entry {
+    string id = 1;
+    string prefix = 2;
+  }
+
+  repeated Entry entry = 1;
+}

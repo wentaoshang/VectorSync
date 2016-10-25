@@ -131,10 +131,11 @@ void Node::ProcessViewInfo(const Interest &vinterest, const Data& vinfo) {
 
 void Node::PublishViewInfo() {
   auto n = MakeViewInfoName(view_id_);
-  auto content = view_info_.Encode();
+  std::string content;
+  view_info_.Encode(content);
   std::shared_ptr<Data> d = std::make_shared<Data>(n);
   d->setFreshnessPeriod(time::seconds(3600));
-  d->setContent(content.data(), content.size());
+  d->setContent(reinterpret_cast<const uint8_t*>(content.data()), content.size());
   d->setContentType(kViewInfo);
   key_chain_.sign(*d, signingWithSha256());
   data_store_[n] = d;
@@ -154,11 +155,11 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
   if (seq == 1) {
     // the first data packet contains the view id, round number, and sequence
     // number of the last packet from the previous round
-    std::vector<uint8_t> ldi_wire;
-    EncodeLastDataInfo(last_data_info_, ldi_wire);
+    std::string ldi_wire;
+    EncodeESN(last_data_info_, ldi_wire);
     std::shared_ptr<Data> d = std::make_shared<Data>(n);
     d->setFreshnessPeriod(time::seconds(3600));
-    d->setContent(ldi_wire.data(), ldi_wire.size());
+    d->setContent(reinterpret_cast<const uint8_t*>(ldi_wire.data()), ldi_wire.size());
     d->setContentType(kLastDataInfo);
     key_chain_.sign(*d, signingWithSha256());
     data_store_[n] = d;
@@ -359,7 +360,7 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
   if (seq == 1 || data.getContentType() == kLastDataInfo) {
     // Extract info about last data in the previous round
     const auto& content = data.getContent();
-    auto p = DecodeLastDataInfo(content.value(), content.value_size());
+    auto p = DecodeESN(content.value(), content.value_size());
     if (!p.second) {
       BOOST_LOG_TRIVIAL(debug) << "Cannot decode last data info from node idx "
                                << index;

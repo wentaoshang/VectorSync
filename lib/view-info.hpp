@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <exception>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -92,36 +93,30 @@ public:
     return member_list_.size();
   }
 
-  std::vector<uint8_t> Encode() const {
-    std::vector<uint8_t> out;
+  void Encode(std::string& out) const {
+    proto::ViewInfo vinfo_proto;
     for (const auto& m : member_list_) {
-      EncodeString(m.id, out);
-      EncodeString(m.prefix.toUri(), out);
+      auto* entry = vinfo_proto.add_entry();
+      entry->set_id(m.id);
+      entry->set_prefix(m.prefix.toUri());
     }
-    return out;
+    vinfo_proto.AppendToString(&out);
   }
 
-  bool Decode(const uint8_t* buf, size_t buf_size) {
+  bool Decode(const void* buf, size_t buf_size) {
+    proto::ViewInfo vinfo_proto;
+    if (!vinfo_proto.ParseFromArray(buf, buf_size)) return false;
+
     std::vector<MemberInfo> minfo;
     std::unordered_map<NodeID, NodeIndex> index_map;
-    NodeIndex idx = 0;
 
-    while (buf_size > 0) {
-      MemberInfo mi;
-      size_t r = DecodeString(buf, buf_size, &mi.id);
-      if (r == 0) return false;
-      if (mi.id.empty()) return false;
-      if (index_map.find(mi.id) != index_map.end()) return false;
-      buf += r;
-      buf_size -= r;
-      std::string p;
-      r = DecodeString(buf, buf_size, &p);
-      if (r == 0) return false;
-      buf += r;
-      buf_size -= r;
-      mi.prefix = Name(p);
-      index_map[mi.id] = idx++;
-      minfo.push_back(std::move(mi));
+    for (int idx = 0; idx < vinfo_proto.entry_size(); ++idx) {
+      const auto& entry = vinfo_proto.entry(idx);
+      if (entry.id().empty()) return false;
+      if (index_map.find(entry.id()) != index_map.end()) return false;
+      Name prefix(entry.prefix());
+      index_map[entry.id()] = idx;
+      minfo.push_back({entry.id(), prefix});
     }
 
     member_list_ = std::move(minfo);

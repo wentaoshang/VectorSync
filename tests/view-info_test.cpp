@@ -66,23 +66,14 @@ BOOST_AUTO_TEST_CASE(GetInfo) {
   BOOST_CHECK_EQUAL(p3.second, false);
 }
 
-BOOST_AUTO_TEST_CASE(Encode) {
-  ViewInfo vinfo({{"A", "/testA"}, {"B 1", "/testB"}, {"C", "/testC"}});
-  std::vector<uint8_t> expected({1, 'A', 6, '/', 't', 'e', 's', 't', 'A',
-        5, 'B', '%', '2', '0', '1', 6, '/', 't', 'e', 's', 't', 'B',
-        1, 'C', 6, '/', 't', 'e', 's', 't', 'C'});
-  auto out = vinfo.Encode();
-  BOOST_TEST(out == expected, boost::test_tools::per_element());
-}
+BOOST_AUTO_TEST_CASE(EncodeDecode) {
+  ViewInfo original({{"A", "/testA"}, {"B 1", "/testB"}, {"C", "/testC"}});
+  std::string out;
+  original.Encode(out);
 
-BOOST_AUTO_TEST_CASE(Decode) {
-  ViewInfo expected({{"A", "/testA"}, {"B 1", "/testB"}, {"C", "/testC"}});
   ViewInfo vinfo;
-  std::vector<uint8_t> wire({1, 'A', 6, '/', 't', 'e', 's', 't', 'A',
-        5, 'B', '%', '2', '0', '1', 6, '/', 't', 'e', 's', 't', 'B',
-        1, 'C', 6, '/', 't', 'e', 's', 't', 'C'});
-  BOOST_TEST(vinfo.Decode(&wire[0], wire.size()));
-  BOOST_TEST(expected == vinfo);
+  BOOST_TEST(vinfo.Decode(out.data(), out.size()));
+  BOOST_TEST(vinfo == original);
 }
 
 BOOST_AUTO_TEST_CASE(Merge) {

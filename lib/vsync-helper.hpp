@@ -101,109 +101,27 @@ inline uint64_t ExtractSequenceNumber(const Name& n) {
   return n.get(-1).toNumber();
 }
 
-inline void EncodeNumber(uint64_t num, std::vector<uint8_t>& out) {
-  if (num <= std::numeric_limits<uint8_t>::max()) {
-    out.push_back(1);
-    out.push_back(static_cast<uint8_t>(num));
-  } else if (num <= std::numeric_limits<uint16_t>::max()) {
-    out.push_back(2);
-    out.push_back(static_cast<uint8_t>(num >> 8));
-    out.push_back(static_cast<uint8_t>(num));
-  } else if (num <= std::numeric_limits<uint32_t>::max()) {
-    out.push_back(4);
-    out.push_back(static_cast<uint8_t>(num >> 24));
-    out.push_back(static_cast<uint8_t>(num >> 16));
-    out.push_back(static_cast<uint8_t>(num >> 8));
-    out.push_back(static_cast<uint8_t>(num));
-  } else {
-    out.push_back(8);
-    out.push_back(static_cast<uint8_t>(num >> 56));
-    out.push_back(static_cast<uint8_t>(num >> 48));
-    out.push_back(static_cast<uint8_t>(num >> 40));
-    out.push_back(static_cast<uint8_t>(num >> 32));
-    out.push_back(static_cast<uint8_t>(num >> 24));
-    out.push_back(static_cast<uint8_t>(num >> 16));
-    out.push_back(static_cast<uint8_t>(num >> 8));
-    out.push_back(static_cast<uint8_t>(num));
-  }
+inline void EncodeESN(const ESN& ldi,
+                      std::string& out) {
+  proto::ESN esn_proto;
+  esn_proto.set_view_num(ldi.vi.first);
+  esn_proto.set_leader_id(ldi.vi.second);
+  esn_proto.set_round_num(ldi.rn);
+  esn_proto.set_seq_num(ldi.seq);
+  esn_proto.AppendToString(&out);
 }
 
-inline void EncodeString(const std::string& str,
-                         std::vector<uint8_t>& out) {
-  size_t l = str.size();
-  if (l > std::numeric_limits<uint8_t>::max())
-    throw "Cannot encode string longer than 255 bytes";
-  out.push_back(l);
-  std::copy(str.begin(), str.end(), std::back_inserter(out));
-}
+inline std::pair<ESN, bool> DecodeESN(const void* buf,
+                                      size_t buf_size) {
+  proto::ESN esn_proto;
+  if (!esn_proto.ParseFromArray(buf, buf_size))
+    return {};
 
-inline void EncodeLastDataInfo(const ESN& ldi,
-                               std::vector<uint8_t>& out) {
-  EncodeNumber(ldi.vi.first, out);
-  EncodeString(ldi.vi.second, out);
-  EncodeNumber(ldi.rn, out);
-  EncodeNumber(ldi.seq, out);
-}
-
-inline size_t DecodeNumber(const uint8_t* buf, size_t buf_size,
-                           uint64_t* num) {
-  if (buf_size == 0) return 0;
-  else if (buf[0] == 1) {
-    if (buf_size < 2) return 0;
-    *num = buf[1];
-    return 2;
-  } else if (buf[0] == 2) {
-    if (buf_size < 3) return 0;
-    *num = (static_cast<uint64_t>(buf[1]) << 8) + buf[2];
-    return 3;
-  } else if (buf[0] == 4) {
-    if (buf_size < 5) return 0;
-    *num = (static_cast<uint64_t>(buf[1]) << 24) +
-      (static_cast<uint64_t>(buf[2]) << 16) +
-      (static_cast<uint64_t>(buf[3]) << 8) + buf[4];
-    return 5;
-  } else if (buf[0] == 8) {
-    if (buf_size < 9) return 0;
-    *num = (static_cast<uint64_t>(buf[1]) << 56) +
-      (static_cast<uint64_t>(buf[2]) << 48) +
-      (static_cast<uint64_t>(buf[3]) << 40) +
-      (static_cast<uint64_t>(buf[4]) << 32) +
-      (static_cast<uint64_t>(buf[5]) << 24) +
-      (static_cast<uint64_t>(buf[6]) << 16) +
-      (static_cast<uint64_t>(buf[7]) << 8) + buf[8];
-    return 9;
-  } else {
-    return 0;
-  }
-}
-
-inline size_t DecodeString(const uint8_t* buf, size_t buf_size,
-                           std::string* str) {
-  if (buf_size == 0) return 0;
-  size_t l = buf[0];
-  if (buf_size < 1 + l) return 0;
-  str->append(reinterpret_cast<const char*>(buf) + 1, l);
-  return 1 + l;
-}
-
-inline std::pair<ESN, bool> DecodeLastDataInfo(const uint8_t* buf,
-                                               size_t buf_size) {
   ESN esn;
-  size_t r = DecodeNumber(buf, buf_size, &esn.vi.first);
-  if (r == 0) return {};
-  buf += r;
-  buf_size -= r;
-  r = DecodeString(buf, buf_size, &esn.vi.second);
-  if (r == 0) return {};
-  buf += r;
-  buf_size -= r;
-  r = DecodeNumber(buf, buf_size, &esn.rn);
-  if (r == 0) return {};
-  buf += r;
-  buf_size -= r;
-  r = DecodeNumber(buf, buf_size, &esn.seq);
-  if (r == 0) return {};
-
+  esn.vi.first = esn_proto.view_num();
+  esn.vi.second = esn_proto.leader_id();
+  esn.rn = esn_proto.round_num();
+  esn.seq = esn_proto.seq_num();
   return {esn, true};
 }
 

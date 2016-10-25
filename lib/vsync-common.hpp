@@ -14,6 +14,8 @@
 #include <ndn-cxx/name.hpp>
 #include <ndn-cxx/util/time.hpp>
 
+#include "vsync-message.pb.h"
+
 namespace ndn {
 namespace vsync {
 

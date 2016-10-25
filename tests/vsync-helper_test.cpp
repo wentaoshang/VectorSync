@@ -42,33 +42,17 @@ BOOST_AUTO_TEST_CASE(Names) {
   BOOST_TEST(seq == seq1);
 }
 
-BOOST_AUTO_TEST_CASE(Encoding) {
+BOOST_AUTO_TEST_CASE(EncodeDecode) {
   ESN esn = {{0x12345678, "ABC"}, 0x1234, 0x12};
-  std::vector<uint8_t> buf;
-  EncodeLastDataInfo(esn, buf);
-  std::vector<uint8_t> expected{4, 0x12, 0x34, 0x56, 0x78, 3, 'A', 'B', 'C',
-      2, 0x12, 0x34, 1, 0x12};
-  BOOST_TEST(buf == expected, boost::test_tools::per_element());
-}
+  std::string buf;
+  EncodeESN(esn, buf);
 
-BOOST_AUTO_TEST_CASE(Decoding) {
-  std::vector<uint8_t> buf{4, 0x12, 0x34, 0x56, 0x78, 3, 'A', 'B', 'C',
-      2, 0x12, 0x34, 1, 0x12};
-  ESN expected = {{0x12345678, "ABC"}, 0x1234, 0x12};
-  auto p1 = DecodeLastDataInfo(buf.data(), buf.size());
+  auto p1 = DecodeESN(buf.data(), buf.size());
   BOOST_TEST(p1.second == true);
-  BOOST_TEST(p1.first.vi.first == expected.vi.first);
-  BOOST_TEST(p1.first.vi.second == expected.vi.second);
-  BOOST_TEST(p1.first.rn == expected.rn);
-  BOOST_TEST(p1.first.seq == expected.seq);
-
-  std::vector<uint8_t> buf_bad1{4, 0x12, 0x34};
-  auto p2 = DecodeLastDataInfo(buf_bad1.data(), buf_bad1.size());
-  BOOST_TEST(p2.second == false);
-
-  std::vector<uint8_t> buf_bad2{4, 0x12, 0x34, 0x56, 0x78, 3, 'A', 'B', 'C'};
-  p2 = DecodeLastDataInfo(buf_bad2.data(), buf_bad2.size());
-  BOOST_TEST(p2.second == false);
+  BOOST_TEST(p1.first.vi.first == esn.vi.first);
+  BOOST_TEST(p1.first.vi.second == esn.vi.second);
+  BOOST_TEST(p1.first.rn == esn.rn);
+  BOOST_TEST(p1.first.seq == esn.seq);
 }
 
 BOOST_AUTO_TEST_SUITE_END();
