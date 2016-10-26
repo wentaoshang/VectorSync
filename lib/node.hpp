@@ -68,7 +68,6 @@ private:
   void ResetState() {
     idx_ = view_info_.GetIndexByID(id_).first;
     is_leader_ = view_id_.second == id_;
-    round_number_ = 1;
     version_vector_.clear();
     version_vector_.resize(view_info_.Size());
     member_state_.clear();
@@ -78,7 +77,8 @@ private:
 
   inline void SendSyncInterest();
   inline void SendDataInterest(const Name& prefix, const NodeID& nid,
-                        const ViewID& vid, uint64_t rn, uint64_t seq);
+                               const ViewID& vid, uint64_t seq);
+  inline void SendSyncReply(const Name& n);
   inline void PublishHeartbeat();
   inline void ProcessHeartbeat(NodeIndex index);
 
@@ -112,7 +112,6 @@ private:
   bool is_leader_ = true;
   ViewID view_id_;
   ViewInfo view_info_;
-  uint64_t round_number_ = 1;
   VersionVector version_vector_;
 
   ESN last_data_info_ = {};

@@ -23,13 +23,12 @@ namespace vsync {
 
 using NodeID = std::string;
 using ViewID = std::pair<uint64_t, NodeID>;
-using VersionVector = std::vector<uint8_t>;
+using VersionVector = std::vector<uint64_t>;
 using NodeIndex = std::size_t;
 
 // Extended sequence number
 struct ESN {
   ViewID vi;
-  uint64_t rn;
   uint64_t seq;
 };
 

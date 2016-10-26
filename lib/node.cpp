@@ -100,7 +100,7 @@ void Node::ProcessViewInfo(const Interest &vinterest, const Data& vinfo) {
 
   //TODO: verify view info using common trust anchor
 
-  ViewID vid = ExtractViewIDFromViewInfoName(n);
+  ViewID vid = ExtractViewID(n);
   if (vid.first > view_id_.first) {
     if (!LoadView(vid, view_info)) {
       BOOST_LOG_TRIVIAL(debug) << "Cannot load received view " << view_info;
@@ -142,15 +142,8 @@ void Node::PublishViewInfo() {
 }
 
 void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
-  if (version_vector_[idx_] == 255) {
-    // round change
-    ++round_number_;
-    // clear version vector
-    std::fill(version_vector_.begin(), version_vector_.end(), 0);
-  }
-
-  uint8_t seq = ++version_vector_[idx_];
-  auto n = MakeDataName(prefix_, id_, view_id_, round_number_, seq);
+  uint64_t seq = ++version_vector_[idx_];
+  auto n = MakeDataName(prefix_, id_, view_id_, seq);
 
   if (seq == 1) {
     // the first data packet contains the view id, round number, and sequence
@@ -169,7 +162,7 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
                              << ToString(last_data_info_);
 
     seq = ++version_vector_[idx_];
-    n = MakeDataName(prefix_, id_, view_id_, round_number_, seq);
+    n = MakeDataName(prefix_, id_, view_id_, seq);
   }
 
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
@@ -178,16 +171,16 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
   data->setContentType(type);
   key_chain_.sign(*data, signingWithSha256());
   data_store_[n] = data;
-  last_data_info_ = {view_id_, round_number_, seq};
+  last_data_info_ = {view_id_, seq};
 
   BOOST_LOG_TRIVIAL(trace) << "Publish: " << n.toUri();
 
   SendSyncInterest();
 }
 
-void Node::SendDataInterest(const Name& prefix, const NodeID& nid, const ViewID& vid,
-                            uint64_t rn, uint64_t seq) {
-  auto in = MakeDataName(prefix, nid, vid, rn, seq);
+void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
+                            const ViewID& vid, uint64_t seq) {
+  auto in = MakeDataName(prefix, nid, vid, seq);
   Interest inst(in, time::milliseconds(1000));
   BOOST_LOG_TRIVIAL(trace) << "Ftch: i.name=" << in.toUri();
   face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
@@ -207,14 +200,26 @@ void Node::OnDataInterest(const Interest& interest) {
 }
 
 void Node::SendSyncInterest() {
-  auto n = MakeVsyncInterestName(view_id_, round_number_, version_vector_);
-  BOOST_LOG_TRIVIAL(trace) << "Send: vi = (" << view_id_.first << ","
-                           << view_id_.second << "), rn = " << round_number_
-                           << ", vv = " << ToString(version_vector_);
+  auto n = MakeVsyncInterestName(view_id_, version_vector_);
+  BOOST_LOG_TRIVIAL(trace) << "Send: vi=(" << view_id_.first << ","
+                           << view_id_.second << "), vv="
+                           << ToString(version_vector_);
   Interest i(n, time::milliseconds(1000));
   face_.expressInterest(i, [](const Interest&, const Data&) {},
                         [](const Interest&, const lp::Nack&) {},
                         [](const Interest&) {});
+}
+
+void Node::SendSyncReply(const Name& n) {
+  std::shared_ptr<Data> data = std::make_shared<Data>(n);
+  data->setFreshnessPeriod(time::milliseconds(50));
+  std::string vv_encode;
+  EncodeVV(version_vector_, vv_encode);
+  data->setContent(reinterpret_cast<const uint8_t*>(vv_encode.data()),
+                   vv_encode.size());
+  data->setContentType(kVsyncReply);
+  key_chain_.sign(*data, signingWithSha256());
+  face_.put(*data);
 }
 
 void Node::OnSyncInterest(const Interest& interest) {
@@ -233,17 +238,16 @@ void Node::OnSyncInterest(const Interest& interest) {
   }
 
   // Check sync interest name size
-  if (n.size() != kVsyncPrefix.size() + 4) {
+  if (n.size() != kVsyncPrefix.size() + 3) {
     BOOST_LOG_TRIVIAL(error) << "Invalid sync interest name: " << n.toUri();
     return;
   }
 
   auto vi = ExtractViewID(n);
-  auto rn = ExtractRoundNumber(n);
   auto vv = ExtractVersionVector(n);
 
-  BOOST_LOG_TRIVIAL(trace) << "Recv: vi = (" << vi.first << "," << vi.second
-                           << "), rn = " << rn << ", vv = " << ToString(vv);
+  BOOST_LOG_TRIVIAL(trace) << "Recv: vi=(" << vi.first << "," << vi.second
+                           << "),vv=" << ToString(vv);
 
   // Check view id
   if (vi != view_id_) {
@@ -264,35 +268,16 @@ void Node::OnSyncInterest(const Interest& interest) {
       << ToString(vv);
   }
 
-  // Check round number
-  if (rn < round_number_) {
-    BOOST_LOG_TRIVIAL(debug) << "Ignore sync interest with smaller round number "
-                             << rn;
-    return;
-  }
-
-  if (rn > round_number_) {
-    // Round change
-    round_number_ = rn;
-    // Clear version vector
-    std::fill(version_vector_.begin(), version_vector_.end(), 0);
-  }
-
   // Process version vector
   VersionVector old_vv = version_vector_;
   version_vector_ = Merge(old_vv, vv);
 
-  BOOST_LOG_TRIVIAL(trace) << "Updt: vi = (" << view_id_.first << ","
-                           << view_id_.second << "), rn = " << round_number_
-                           << ", vv = " << ToString(version_vector_);
+  BOOST_LOG_TRIVIAL(trace) << "Updt: vi=(" << view_id_.first << ","
+                           << view_id_.second << "), vv="
+                           << ToString(version_vector_);
 
   // Generate sync reply to purge pending sync Interest
-  std::shared_ptr<Data> data = std::make_shared<Data>(n);
-  data->setFreshnessPeriod(time::milliseconds(50));
-  data->setContent(version_vector_.data(), version_vector_.size());
-  data->setContentType(kVsyncReply);
-  key_chain_.sign(*data, signingWithSha256());
-  face_.put(*data);
+  SendSyncReply(n);
 
   for (size_t i = 0; i < vv.size(); ++i) {
     if (i == idx_) continue;
@@ -305,8 +290,10 @@ void Node::OnSyncInterest(const Interest& interest) {
     if (!pfx.second)
       throw Error("Cannot get node prefix for index " + std::to_string(i));
 
-    for (uint64_t seq = old_vv[i] + 1; seq <= vv[i]; ++seq) {
-      SendDataInterest(pfx.first, nid.first, vi, rn, seq);
+    if (old_vv[i] < vv[i]) {
+      for (uint64_t seq = old_vv[i] + 1; seq <= vv[i]; ++seq) {
+        SendDataInterest(pfx.first, nid.first, vi, seq);
+      }
     }
   }
 }
@@ -345,7 +332,6 @@ void Node::OnRemoteData(const Data& data) {
 void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
   const auto& n = data.getName();
   auto vi = ExtractViewID(n);
-  auto rn = ExtractRoundNumber(n);
   auto seq = ExtractSequenceNumber(n);
 
   auto& win = member_state_[index].recv_window;
@@ -353,8 +339,8 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
   // Insert the new seq number into the receive window
   BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << index
                            << "]: vi=(" << vi.first << "," << vi.second
-                           << "),rn=" << rn << ",seq=" << seq;
-  win.Insert({vi, rn, seq});
+                           << "),seq=" << seq;
+  win.Insert({vi, seq});
 
   // Check last data info
   if (seq == 1 || data.getContentType() == kLastDataInfo) {
@@ -371,11 +357,11 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
     BOOST_LOG_TRIVIAL(trace) << "Recv last data info: " << ToString(ldi)
                              << " from node idx " << index;
 
-    auto missing_seq_intervals = win.CheckForMissingData(ldi, vi, rn);
+    auto missing_seq_intervals = win.CheckForMissingData(ldi, vi);
     if (missing_seq_intervals.empty()) {
       BOOST_LOG_TRIVIAL(debug) << "No missing data from node idx " << index
                                << " for vid=(" << ldi.vi.first << ","
-                               << ldi.vi.second << "),rn=" << ldi.rn;
+                               << ldi.vi.second << ")";
       return;
     }
 
@@ -390,7 +376,7 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
 
     for (auto iter = boost::icl::elements_begin(missing_seq_intervals);
          iter != boost::icl::elements_end(missing_seq_intervals); ++iter) {
-      SendDataInterest(pfx.first, nid.first, ldi.vi, ldi.rn, *iter);
+      SendDataInterest(pfx.first, nid.first, ldi.vi, *iter);
     }
   }
 }
