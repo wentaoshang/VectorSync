@@ -3,6 +3,7 @@
 #ifndef NDN_VSYNC_INTEREST_HELPER_HPP_
 #define NDN_VSYNC_INTEREST_HELPER_HPP_
 
+#include <iostream>
 #include <iterator>
 #include <limits>
 #include <sstream>
@@ -125,6 +126,14 @@ inline std::string ToString(const ESN& s) {
   std::ostringstream os;
   os << "{(" << s.vi.first << ',' << s.vi.second << ")," << s.seq << '}';
   return os.str();
+}
+
+inline std::ostream& operator<<(std::ostream& os, const ESN& s) {
+  return os << "{(" << s.vi.first << ',' << s.vi.second << ")," << s.seq << '}';
+}
+
+inline bool operator==(const ESN& l, const ESN& r) {
+  return l.vi == r.vi && l.seq == r.seq;
 }
 
 }  // namespace vsync

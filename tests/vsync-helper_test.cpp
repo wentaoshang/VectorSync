@@ -53,9 +53,7 @@ BOOST_AUTO_TEST_CASE(ESNEncodeDecode) {
 
   auto p1 = DecodeESN(buf.data(), buf.size());
   BOOST_TEST(p1.second == true);
-  BOOST_TEST(p1.first.vi.first == esn.vi.first);
-  BOOST_TEST(p1.first.vi.second == esn.vi.second);
-  BOOST_TEST(p1.first.seq == esn.seq);
+  BOOST_CHECK_EQUAL(p1.first, esn);
 }
 
 BOOST_AUTO_TEST_SUITE_END();

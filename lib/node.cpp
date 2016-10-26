@@ -358,10 +358,18 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
     BOOST_LOG_TRIVIAL(trace) << "Recv last data info: " << ToString(ldi)
                              << " from node idx " << index;
 
-    auto missing_seq_intervals = win.CheckForMissingData(ldi, vi);
+    auto p2 = win.CheckForMissingData(ldi, vi);
+    if (!p2.second) {
+      BOOST_LOG_TRIVIAL(debug) << "Failed to check missing data for node idx "
+                               << index << ", vid=(" << ldi.vi.first << ","
+                               << ldi.vi.second << ")";
+      return;
+    }
+
+    const auto& missing_seq_intervals = p2.first;
     if (missing_seq_intervals.empty()) {
       BOOST_LOG_TRIVIAL(debug) << "No missing data from node idx " << index
-                               << " for vid=(" << ldi.vi.first << ","
+                               << ", vid=(" << ldi.vi.first << ","
                                << ldi.vi.second << ")";
       return;
     }

@@ -46,7 +46,8 @@ class ReceiveWindow {
    * @param ldi  Last data info represented as ESN
    * @param vid  View ID of the view in which @p ldi was received
    */
-  SeqNumIntervalSet CheckForMissingData(const ESN& ldi, const ViewID& vid) {
+  std::pair<SeqNumIntervalSet, bool> CheckForMissingData(const ESN& ldi,
+                                                         const ViewID& vid) {
     // Ignore last data info with view/seq number equal to 0.
     if (ldi.vi.first == 0 || ldi.seq == 0) return {};
 
@@ -71,7 +72,49 @@ class ReceiveWindow {
       entry.next_vi = vid;
     }
     r -= entry.win;
-    return r;
+    return {r, true};
+  }
+
+  /**
+   * @brief Checks whether the window includes all published data in view @p vid
+   */
+  bool HasAllData(const ViewID& vid) const {
+    auto iter = state_.find(vid.first);
+    if (iter == state_.end()) return false;
+    if (iter->second.leader_id != vid.second) return false;
+    return iter->second.HasAllData();
+  }
+
+  /**
+   * @brief Checks whether the window includes all published data before seq num
+   *        @p seq in view @p vid and all published data in previous views
+   */
+  bool HasAllDataBefore(const ViewID& vid, uint64_t seq) const {
+    for (const auto& p : state_) {
+      if (p.first < vid.first && !p.second.HasAllData()) return false;
+      if (p.first == vid.first) {
+        if (p.second.leader_id != vid.second)
+          return false;
+        else
+          return p.second.HasAllDataBefore(seq);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * @brief Returns the extended sequence number of the last acknowledged data
+   *        in this receive window (i.e., all previous data upto this one have
+   *        been received) .
+   */
+  ESN LastAckedData() const {
+    for (const auto& p : state_) {
+      if (!p.second.HasAllData()) {
+        uint64_t s = p.second.LastAckedData();
+        return {{p.first, p.second.leader_id}, s};
+      }
+    }
+    return {};
   }
 
   friend bool operator==(const ReceiveWindow& l, const ReceiveWindow& r) {
@@ -93,7 +136,23 @@ class ReceiveWindow {
     std::string leader_id;  // Leader id of this view
     SeqNumIntervalSet win;  // Intervals of received seq nums
     ViewID next_vi;         // View number of the next round after this
-    uint64_t last_seq_num;  // Last sequence number in this round
+    uint64_t last_seq_num;  // Last sequence number in this view
+
+    bool HasAllData() const {
+      return last_seq_num != 0 && win.iterative_size() == 1 &&
+             win.begin()->upper() == last_seq_num;
+    }
+
+    bool HasAllDataBefore(uint64_t seq) const {
+      return win.iterative_size() >= 1 && win.begin()->upper() >= seq;
+    }
+
+    uint64_t LastAckedData() const {
+      if (win.empty())
+        return 0;
+      else
+        return win.begin()->upper();
+    }
 
     friend bool operator==(const Entry& l, const Entry& r) {
       return l.leader_id == r.leader_id && l.win == r.win &&
@@ -101,6 +160,7 @@ class ReceiveWindow {
     }
   };
 
+  // Map from view number to Entry
   std::map<uint64_t, Entry> state_;
 };
 

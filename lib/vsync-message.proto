@@ -16,6 +16,11 @@ message ESN {
   uint64 seq_num = 3;
 }
 
+// Extended version vector
+message EVV {
+  repeated ESN entry = 1;
+}
+
 // View Info
 message ViewInfo {
   message Entry {
