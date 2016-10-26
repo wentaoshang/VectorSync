@@ -45,7 +45,7 @@ static constexpr time::seconds kLeaderElectionTimoutMax = time::seconds(3);
 // kViewChangeThreadhold.
 static const size_t kViewChangeThreshold = 1;
 
-} // namespace vsync
-} // namespace ndn
+}  // namespace vsync
+}  // namespace ndn
 
-#endif // NDN_VSYNC_COMMON_HPP_
+#endif  // NDN_VSYNC_COMMON_HPP_

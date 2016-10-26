@@ -5,4 +5,4 @@
 
 #include "node.hpp"
 
-#endif // NDN_VSYNC_HPP_
+#endif  // NDN_VSYNC_HPP_

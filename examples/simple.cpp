@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #include <functional>
 #include <iostream>
@@ -11,30 +11,30 @@ namespace vsync {
 namespace examples {
 
 class SimpleNode {
-public:
+ public:
   SimpleNode(const NodeID& nid, const Name& prefix)
-    : face_(io_service_)
-    , scheduler_(io_service_)
-    , node_(face_, scheduler_, key_chain_, nid, prefix,
-            std::bind(&SimpleNode::OnData, this, _1, _2))
-    , rengine_(rdevice_())
-    , rdist_(500, 10000) {}
+      : face_(io_service_),
+        scheduler_(io_service_),
+        node_(face_, scheduler_, key_chain_, nid, prefix,
+              std::bind(&SimpleNode::OnData, this, _1, _2)),
+        rengine_(rdevice_()),
+        rdist_(500, 10000) {}
 
   void Start() {
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
-			     [this] { PublishData(); });
+                             [this] { PublishData(); });
     face_.processEvents();
   }
 
-private:
+ private:
   void OnData(const uint8_t* buf, size_t buf_size) {
     std::cout << "Upcall OnData: content_size=" << buf_size << std::endl;
   }
 
   void PublishData() {
-    node_.PublishData({1,2,3,4,5,6,7,8,9,10});
+    node_.PublishData({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
-			     [this] { PublishData(); });
+                             [this] { PublishData(); });
   }
 
   boost::asio::io_service io_service_;
@@ -51,7 +51,8 @@ private:
 int main(int argc, char* argv[]) {
   // Create a simple view with three nodes
   if (argc != 3) {
-    std::cerr << "Usage: " << argv[0] << " [node_id] [node_prefix]" << std::endl;
+    std::cerr << "Usage: " << argv[0] << " [node_id] [node_prefix]"
+              << std::endl;
     return -1;
   }
 
@@ -63,9 +64,9 @@ int main(int argc, char* argv[]) {
   return 0;
 }
 
-} // namespace examples
-} // namespace vsync
-} // namespace ndn
+}  // namespace examples
+}  // namespace vsync
+}  // namespace ndn
 
 int main(int argc, char* argv[]) {
   return ndn::vsync::examples::main(argc, argv);
