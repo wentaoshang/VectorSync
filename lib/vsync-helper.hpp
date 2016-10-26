@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #ifndef NDN_VSYNC_INTEREST_HELPER_HPP_
 #define NDN_VSYNC_INTEREST_HELPER_HPP_
@@ -17,8 +17,7 @@ namespace vsync {
 // Helpers for version vector processing
 
 inline VersionVector Merge(const VersionVector& v1, const VersionVector& v2) {
-  if (v1.size() != v2.size())
-    return {};
+  if (v1.size() != v2.size()) return {};
 
   VersionVector res(v1.size());
   std::transform(v1.begin(), v1.end(), v2.begin(), res.begin(),
@@ -28,11 +27,11 @@ inline VersionVector Merge(const VersionVector& v1, const VersionVector& v2) {
 
 inline std::string ToString(const VersionVector& v) {
   std::string s(1, '[');
-  s.append(std::accumulate(std::next(v.begin()), v.end(),
-                           std::to_string(v[0]),
+  s.append(std::accumulate(std::next(v.begin()), v.end(), std::to_string(v[0]),
                            [](std::string a, uint64_t b) {
                              return a + ',' + std::to_string(b);
-                           })).append(1, ']');
+                           }))
+      .append(1, ']');
   return s;
 }
 
@@ -57,14 +56,15 @@ inline VersionVector DecodeVV(const void* buf, size_t buf_size) {
 
 // Helpers for sync Interest processing
 
-inline Name MakeVsyncInterestName(const ViewID& vid,
-                                  const VersionVector& vv) {
+inline Name MakeVsyncInterestName(const ViewID& vid, const VersionVector& vv) {
   // name = /[vsync_prefix]/[view_num]/[leader_id]/[version_vector]
   std::string vv_encode;
   EncodeVV(vv, vv_encode);
   Name n(kVsyncPrefix);
-  n.appendNumber(vid.first).append(vid.second)
-    .append(reinterpret_cast<const uint8_t*>(vv_encode.data()), vv_encode.size());
+  n.appendNumber(vid.first)
+      .append(vid.second)
+      .append(reinterpret_cast<const uint8_t*>(vv_encode.data()),
+              vv_encode.size());
   return n;
 }
 
@@ -96,16 +96,13 @@ inline Name MakeDataName(const Name& prefix, const NodeID& nid,
   return n;
 }
 
-inline NodeID ExtractNodeID(const Name& n) {
-  return n.get(-4).toUri();
-}
+inline NodeID ExtractNodeID(const Name& n) { return n.get(-4).toUri(); }
 
 inline uint64_t ExtractSequenceNumber(const Name& n) {
   return n.get(-1).toNumber();
 }
 
-inline void EncodeESN(const ESN& ldi,
-                      std::string& out) {
+inline void EncodeESN(const ESN& ldi, std::string& out) {
   proto::ESN esn_proto;
   esn_proto.set_view_num(ldi.vi.first);
   esn_proto.set_leader_id(ldi.vi.second);
@@ -113,11 +110,9 @@ inline void EncodeESN(const ESN& ldi,
   esn_proto.AppendToString(&out);
 }
 
-inline std::pair<ESN, bool> DecodeESN(const void* buf,
-                                      size_t buf_size) {
+inline std::pair<ESN, bool> DecodeESN(const void* buf, size_t buf_size) {
   proto::ESN esn_proto;
-  if (!esn_proto.ParseFromArray(buf, buf_size))
-    return {};
+  if (!esn_proto.ParseFromArray(buf, buf_size)) return {};
 
   ESN esn;
   esn.vi.first = esn_proto.view_num();
@@ -132,7 +127,7 @@ inline std::string ToString(const ESN& s) {
   return os.str();
 }
 
-} // namespace vsync
-} // namespace ndn
+}  // namespace vsync
+}  // namespace ndn
 
-#endif // NDN_VSYNC_INTEREST_HELPER_HPP_
+#endif  // NDN_VSYNC_INTEREST_HELPER_HPP_

@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #include <boost/asio.hpp>
 
@@ -9,6 +9,6 @@
 #include <ndn-cxx/security/signing-helpers.hpp>
 #include <ndn-cxx/security/signing-info.hpp>
 #include <ndn-cxx/util/backports.hpp>
-#include <ndn-cxx/util/scheduler.hpp>
 #include <ndn-cxx/util/scheduler-scoped-event-id.hpp>
+#include <ndn-cxx/util/scheduler.hpp>
 #include <ndn-cxx/util/signal.hpp>

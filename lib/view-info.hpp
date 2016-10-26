@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #ifndef NDN_VSYNC_VIEW_INFO_HPP_
 #define NDN_VSYNC_VIEW_INFO_HPP_
@@ -27,16 +27,14 @@ struct MemberInfo {
 };
 
 class ViewInfo {
-public:
+ public:
   class Error : public std::exception {
-  public:
+   public:
     Error(const std::string& what) : what_(what) {}
 
-    virtual const char* what() const noexcept override {
-      return what_.c_str();
-    }
+    virtual const char* what() const noexcept override { return what_.c_str(); }
 
-  private:
+   private:
     std::string what_;
   };
 
@@ -50,16 +48,15 @@ public:
    * @param uri The member info list in this view.
    */
   explicit ViewInfo(const std::vector<MemberInfo>& member_list)
-    : member_list_(member_list) {
+      : member_list_(member_list) {
     for (auto& m : member_list_) {
-      if (m.id.empty())
-        throw Error("Empty node ID in member list");
+      if (m.id.empty()) throw Error("Empty node ID in member list");
       // Convert node ID to a string that conforms to NDN URI scheme
       m.id = name::Component(m.id).toUri();
-      //TODO: support encoding of node id longer than 255 bytes
+      // TODO: support encoding of node id longer than 255 bytes
       if (m.id.size() > 255)
         throw Error("Node ID longer than 255 bytes: " + m.id);
-      //TODO: support encoding of node prefix longer than 255 bytes
+      // TODO: support encoding of node prefix longer than 255 bytes
       const auto& pfx = m.prefix.toUri();
       if (pfx.size() > 255)
         throw Error("Node prefix URI longger than 255 bytes: " + pfx);
@@ -68,30 +65,33 @@ public:
     for (std::size_t i = 0; i != member_list_.size(); ++i) {
       const auto& id = member_list_[i].id;
       auto r = member_index_map_.insert({id, i});
-      if (!r.second)
-	throw Error("Duplicate node ID in member list");
+      if (!r.second) throw Error("Duplicate node ID in member list");
     }
   }
 
   std::pair<NodeIndex, bool> GetIndexByID(const NodeID& nid) const {
     auto iter = member_index_map_.find(nid);
-    if (iter == member_index_map_.end()) return {};
-    else return {iter->second, true};
+    if (iter == member_index_map_.end())
+      return {};
+    else
+      return {iter->second, true};
   }
 
   std::pair<NodeID, bool> GetIDByIndex(NodeIndex idx) const {
-    if (idx >= member_list_.size()) return {};
-    else return {member_list_[idx].id, true};
+    if (idx >= member_list_.size())
+      return {};
+    else
+      return {member_list_[idx].id, true};
   }
 
   std::pair<Name, bool> GetPrefixByIndex(NodeIndex idx) const {
-    if (idx >= member_list_.size()) return {};
-    else return {member_list_[idx].prefix, true};
+    if (idx >= member_list_.size())
+      return {};
+    else
+      return {member_list_[idx].prefix, true};
   }
 
-  std::size_t Size() const {
-    return member_list_.size();
-  }
+  std::size_t Size() const { return member_list_.size(); }
 
   void Encode(std::string& out) const {
     proto::ViewInfo vinfo_proto;
@@ -137,10 +137,9 @@ public:
   }
 
   void Remove(const std::unordered_set<NodeID>& ids) {
-    auto iter = std::remove_if(member_list_.begin(), member_list_.end(),
-                               [&ids](const MemberInfo& m) {
-                                 return ids.find(m.id) != ids.end();
-                               });
+    auto iter = std::remove_if(
+        member_list_.begin(), member_list_.end(),
+        [&ids](const MemberInfo& m) { return ids.find(m.id) != ids.end(); });
     if (iter == member_list_.end()) return;
     member_list_.erase(iter, member_list_.end());
 
@@ -154,7 +153,7 @@ public:
 
   friend bool operator==(const ViewInfo& lv, const ViewInfo& rv) {
     return lv.member_list_ == rv.member_list_ &&
-      lv.member_index_map_ == rv.member_index_map_;
+           lv.member_index_map_ == rv.member_index_map_;
   }
 
   friend std::ostream& operator<<(std::ostream& os, const ViewInfo& vinfo) {
@@ -164,17 +163,18 @@ public:
       auto iter = vinfo.member_index_map_.find(m.id);
       if (iter == vinfo.member_index_map_.end())
         throw Error("Cannot find node index for ID " + m.id);
-      os << "," << iter->second << "={" << m.id << "," << m.prefix.toUri() << "}";
+      os << "," << iter->second << "={" << m.id << "," << m.prefix.toUri()
+         << "}";
     }
     return os << ")";
   }
 
-private:
+ private:
   std::vector<MemberInfo> member_list_;
   std::unordered_map<NodeID, NodeIndex> member_index_map_;
 };
 
-} // namespace vsync
-} // namespace ndn
+}  // namespace vsync
+}  // namespace ndn
 
-#endif // NDN_VSYNC_VIEW_INFO_HPP_
+#endif  // NDN_VSYNC_VIEW_INFO_HPP_

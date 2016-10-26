@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #include <random>
 
@@ -12,35 +12,33 @@ namespace vsync {
 
 Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
            const NodeID& nid, const Name& prefix, Node::DataCb on_data)
-  : face_(face)
-  , scheduler_(scheduler)
-  , key_chain_(key_chain)
-  , id_(name::Component(nid).toUri())
-  , prefix_(prefix)
-  , view_id_({1, nid})
-  , view_info_({{nid, prefix}})
-  , data_cb_(std::move(on_data))
-  , rengine_(rdevice_())
-  , rdist_(100, time::milliseconds(kLeaderElectionTimoutMax).count())
-  , heartbeat_event_(scheduler_)
-  , healthcheck_event_(scheduler_)
-  , leader_election_event_(scheduler_) {
+    : face_(face),
+      scheduler_(scheduler),
+      key_chain_(key_chain),
+      id_(name::Component(nid).toUri()),
+      prefix_(prefix),
+      view_id_({1, nid}),
+      view_info_({{nid, prefix}}),
+      data_cb_(std::move(on_data)),
+      rengine_(rdevice_()),
+      rdist_(100, time::milliseconds(kLeaderElectionTimoutMax).count()),
+      heartbeat_event_(scheduler_),
+      healthcheck_event_(scheduler_),
+      leader_election_event_(scheduler_) {
   ResetState();
   if (is_leader_) PublishViewInfo();
 
-  face_.setInterestFilter(kVsyncPrefix,
-                          std::bind(&Node::OnSyncInterest, this, _2),
-                          [this](const Name&, const std::string& reason) {
-                            throw Error("Failed to register vsync prefix: "
-                                        + reason);
-                          });
+  face_.setInterestFilter(
+      kVsyncPrefix, std::bind(&Node::OnSyncInterest, this, _2),
+      [this](const Name&, const std::string& reason) {
+        throw Error("Failed to register vsync prefix: " + reason);
+      });
 
-  face_.setInterestFilter(Name(prefix).append(id_),
-                          std::bind(&Node::OnDataInterest, this, _2),
-                          [this](const Name&, const std::string& reason) {
-                            throw Error("Failed to register data prefix: "
-                                        + reason);
-                          });
+  face_.setInterestFilter(
+      Name(prefix).append(id_), std::bind(&Node::OnDataInterest, this, _2),
+      [this](const Name&, const std::string& reason) {
+        throw Error("Failed to register data prefix: " + reason);
+      });
 
   heartbeat_event_ = scheduler_.scheduleEvent(kHeartbeatInterval,
                                               [this] { PublishHeartbeat(); });
@@ -52,7 +50,8 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
   auto p = vinfo.GetIndexByID(id_);
   if (!p.second) {
-    BOOST_LOG_TRIVIAL(debug) << "View info does not contain self node ID " << id_;
+    BOOST_LOG_TRIVIAL(debug) << "View info does not contain self node ID "
+                             << id_;
     return false;
   }
 
@@ -81,7 +80,7 @@ void Node::DoViewChange(const ViewID& vid) {
   }
 }
 
-void Node::ProcessViewInfo(const Interest &vinterest, const Data& vinfo) {
+void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
   const auto& n = vinfo.getName();
   BOOST_LOG_TRIVIAL(trace) << "Recv: d.name=" << n.toUri();
   if (n.size() != vinterest.getName().size()) {
@@ -98,7 +97,7 @@ void Node::ProcessViewInfo(const Interest &vinterest, const Data& vinfo) {
 
   BOOST_LOG_TRIVIAL(trace) << "Recv: " << view_info;
 
-  //TODO: verify view info using common trust anchor
+  // TODO: verify view info using common trust anchor
 
   ViewID vid = ExtractViewID(n);
   if (vid.first > view_id_.first) {
@@ -112,12 +111,13 @@ void Node::ProcessViewInfo(const Interest &vinterest, const Data& vinfo) {
 
     // Store a local copy of view info data
     data_store_[n] = vinfo.shared_from_this();
-  } else if (is_leader_ && ((vid.first < view_id_.first && vid.second != id_) ||
-                            (vid.first == view_id_.first && vid.second < id_))) {
+  } else if (is_leader_ &&
+             ((vid.first < view_id_.first && vid.second != id_) ||
+              (vid.first == view_id_.first && vid.second < id_))) {
     if (!view_info_.Merge(view_info) && vid.first < view_id_.first)
-      // No need to do view change since there is no change to group membership and
-      // current view number is higher than the received one. The node with lower
-      // view number will move to higher view anyway.
+      // No need to do view change since there is no change to group membership
+      // and current view number is higher than the received one. The node with
+      // lower view number will move to higher view anyway.
       return;
 
     ++view_id_.first;
@@ -135,7 +135,8 @@ void Node::PublishViewInfo() {
   view_info_.Encode(content);
   std::shared_ptr<Data> d = std::make_shared<Data>(n);
   d->setFreshnessPeriod(time::seconds(3600));
-  d->setContent(reinterpret_cast<const uint8_t*>(content.data()), content.size());
+  d->setContent(reinterpret_cast<const uint8_t*>(content.data()),
+                content.size());
   d->setContentType(kViewInfo);
   key_chain_.sign(*d, signingWithSha256());
   data_store_[n] = d;
@@ -152,7 +153,8 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
     EncodeESN(last_data_info_, ldi_wire);
     std::shared_ptr<Data> d = std::make_shared<Data>(n);
     d->setFreshnessPeriod(time::seconds(3600));
-    d->setContent(reinterpret_cast<const uint8_t*>(ldi_wire.data()), ldi_wire.size());
+    d->setContent(reinterpret_cast<const uint8_t*>(ldi_wire.data()),
+                  ldi_wire.size());
     d->setContentType(kLastDataInfo);
     key_chain_.sign(*d, signingWithSha256());
     data_store_[n] = d;
@@ -193,7 +195,7 @@ void Node::OnDataInterest(const Interest& interest) {
   auto iter = data_store_.find(n);
   if (iter == data_store_.end()) {
     BOOST_LOG_TRIVIAL(debug) << "Unrecognized data interest: " << n.toUri();
-    //TODO: send L7 nack based on the sequence number in the Interest name
+    // TODO: send L7 nack based on the sequence number in the Interest name
   } else {
     face_.put(*iter->second);
   }
@@ -202,8 +204,8 @@ void Node::OnDataInterest(const Interest& interest) {
 void Node::SendSyncInterest() {
   auto n = MakeVsyncInterestName(view_id_, version_vector_);
   BOOST_LOG_TRIVIAL(trace) << "Send: vi=(" << view_id_.first << ","
-                           << view_id_.second << "), vv="
-                           << ToString(version_vector_);
+                           << view_id_.second
+                           << "), vv=" << ToString(version_vector_);
   Interest i(n, time::milliseconds(1000));
   face_.expressInterest(i, [](const Interest&, const Data&) {},
                         [](const Interest&, const lp::Nack&) {},
@@ -264,8 +266,8 @@ void Node::OnSyncInterest(const Interest& interest) {
 
   if (vv[idx_] > version_vector_[idx_]) {
     BOOST_LOG_TRIVIAL(info)
-      << "Ignore version vector with larger sequence number for ourselves: "
-      << ToString(vv);
+        << "Ignore version vector with larger sequence number for ourselves: "
+        << ToString(vv);
   }
 
   // Process version vector
@@ -273,8 +275,8 @@ void Node::OnSyncInterest(const Interest& interest) {
   version_vector_ = Merge(old_vv, vv);
 
   BOOST_LOG_TRIVIAL(trace) << "Updt: vi=(" << view_id_.first << ","
-                           << view_id_.second << "), vv="
-                           << ToString(version_vector_);
+                           << view_id_.second
+                           << "), vv=" << ToString(version_vector_);
 
   // Generate sync reply to purge pending sync Interest
   SendSyncReply(n);
@@ -310,15 +312,15 @@ void Node::OnRemoteData(const Data& data) {
 
   auto index = view_info_.GetIndexByID(nid);
   if (!index.second) {
-    BOOST_LOG_TRIVIAL(debug) << "Unkown node id in received data: "
-                             << nid;
+    BOOST_LOG_TRIVIAL(debug) << "Unkown node id in received data: " << nid;
     return;
   }
 
   UpdateReceiveWindow(data, index.first);
 
   // Store a local copy of received data
-  data_store_[n] = data.shared_from_this();;
+  data_store_[n] = data.shared_from_this();
+  ;
 
   auto content_type = data.getContentType();
   if (content_type == kHeartbeat) {
@@ -337,9 +339,8 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
   auto& win = member_state_[index].recv_window;
 
   // Insert the new seq number into the receive window
-  BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << index
-                           << "]: vi=(" << vi.first << "," << vi.second
-                           << "),seq=" << seq;
+  BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << index << "]: vi=("
+                           << vi.first << "," << vi.second << "),seq=" << seq;
   win.Insert({vi, seq});
 
   // Check last data info
@@ -366,13 +367,13 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
     }
 
     // Fetch missing data in the previous round
-      auto nid = view_info_.GetIDByIndex(index);
-      if (!nid.second)
-        throw Error("Cannot get node ID for index " + std::to_string(index));
+    auto nid = view_info_.GetIDByIndex(index);
+    if (!nid.second)
+      throw Error("Cannot get node ID for index " + std::to_string(index));
 
-      auto pfx = view_info_.GetPrefixByIndex(index);
-      if (!pfx.second)
-        throw Error("Cannot get node prefix for index " + std::to_string(index));
+    auto pfx = view_info_.GetPrefixByIndex(index);
+    if (!pfx.second)
+      throw Error("Cannot get node prefix for index " + std::to_string(index));
 
     for (auto iter = boost::icl::elements_begin(missing_seq_intervals);
          iter != boost::icl::elements_end(missing_seq_intervals); ++iter) {
@@ -392,7 +393,8 @@ void Node::PublishHeartbeat() {
 
 void Node::ProcessHeartbeat(NodeIndex index) {
   BOOST_LOG_TRIVIAL(trace) << "Recv HEARTBEAT from node idx " << index;
-  member_state_[index].last_heartbeat = time::steady_clock::now();;
+  member_state_[index].last_heartbeat = time::steady_clock::now();
+  ;
 }
 
 void Node::DoHealthcheck() {
@@ -420,8 +422,9 @@ void Node::DoHealthcheck() {
       ++view_id_.first;
       ResetState();
       PublishViewInfo();
-      BOOST_LOG_TRIVIAL(debug) << "Move to new view: id=(" << view_id_.first << ","
-                               << view_id_.second << "), vinfo=" << view_info_;
+      BOOST_LOG_TRIVIAL(debug) << "Move to new view: id=(" << view_id_.first
+                               << "," << view_id_.second
+                               << "), vinfo=" << view_info_;
       PublishHeartbeat();
     }
   } else {
@@ -434,8 +437,8 @@ void Node::DoHealthcheck() {
       BOOST_LOG_TRIVIAL(debug) << "Leader " << leader_id << " is dead";
       // Start leader election timer
       leader_election_event_ =
-        scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
-                                 [this] { ProcessLeaderElectionTimeout(); });
+          scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
+                                   [this] { ProcessLeaderElectionTimeout(); });
     }
   }
 }
@@ -452,5 +455,5 @@ void Node::ProcessLeaderElectionTimeout() {
   PublishHeartbeat();
 }
 
-} // namespace vsync
-} // namespace ndn
+}  // namespace vsync
+}  // namespace ndn

@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #ifndef NDN_VSYNC_NODE_HPP_
 #define NDN_VSYNC_NODE_HPP_
@@ -18,7 +18,7 @@ namespace ndn {
 namespace vsync {
 
 class Node {
-public:
+ public:
   using DataCb = std::function<void(const uint8_t*, size_t)>;
 
   enum DataType : uint32_t {
@@ -30,22 +30,20 @@ public:
   };
 
   class Error : public std::exception {
-  public:
+   public:
     Error(const std::string& what) : what_(what) {}
 
-    virtual const char* what() const noexcept override {
-      return what_.c_str();
-    }
+    virtual const char* what() const noexcept override { return what_.c_str(); }
 
-  private:
+   private:
     std::string what_;
   };
 
   /**
-   * @brief Creates a VSync node in a default view with itself as the only member.
-   *        The node itself is set as the leader of the view, which has view ID
-   *        (1, @p nid). View number and round number always starts from 1. 0 is
-   *        reserved for representing invalid view/round number.
+   * @brief Creates a VSync node in a default view with itself as the only
+   *        member. The node itself is set as the leader of the view, which has
+   *        view ID (1, @p nid). View number always starts from 1. 0 is reserved
+   *        for representing invalid view number.
    *
    * @param face       Reference to the Face object on which the node runs
    * @param scheduler  Reference to the scheduler associated with @p face
@@ -59,9 +57,10 @@ public:
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
-  void PublishData(const std::vector<uint8_t>& content, uint32_t type = kUserData);
+  void PublishData(const std::vector<uint8_t>& content,
+                   uint32_t type = kUserData);
 
-private:
+ private:
   Node(const Node&) = delete;
   Node& operator=(const Node&) = delete;
 
@@ -134,7 +133,7 @@ private:
   util::scheduler::ScopedEventId leader_election_event_;
 };
 
-} // namespace vsync
-} // namespace ndn
+}  // namespace vsync
+}  // namespace ndn
 
-#endif // NDN_VSYNC_NODE_HPP_
+#endif  // NDN_VSYNC_NODE_HPP_

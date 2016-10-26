@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #include <boost/test/unit_test.hpp>
 
@@ -9,19 +9,18 @@ BOOST_AUTO_TEST_SUITE(TestVsyncHelper);
 using namespace ndn::vsync;
 
 BOOST_AUTO_TEST_CASE(MergeVV) {
-  VersionVector v1{1,0,5};
-  VersionVector v2{2,4,1};
+  VersionVector v1{1, 0, 5};
+  VersionVector v2{2, 4, 1};
   auto r1 = ndn::vsync::Merge(v1, v2);
-  BOOST_TEST(r1 == VersionVector({2,4,5}),
-             boost::test_tools::per_element());
+  BOOST_TEST(r1 == VersionVector({2, 4, 5}), boost::test_tools::per_element());
 
-  VersionVector v3{1,0};
+  VersionVector v3{1, 0};
   auto r2 = ndn::vsync::Merge(v1, v3);
   BOOST_TEST(r2 == VersionVector());
 }
 
 BOOST_AUTO_TEST_CASE(VVEncodeDecode) {
-  VersionVector v1{1,5,2,4,3};
+  VersionVector v1{1, 5, 2, 4, 3};
   std::string out;
   EncodeVV(v1, out);
   VersionVector v2 = DecodeVV(out.data(), out.size());
@@ -30,7 +29,7 @@ BOOST_AUTO_TEST_CASE(VVEncodeDecode) {
 
 BOOST_AUTO_TEST_CASE(Names) {
   ViewID vid{1, "A"};
-  VersionVector vv{1,2,1,2};
+  VersionVector vv{1, 2, 1, 2};
   auto n1 = MakeVsyncInterestName(vid, vv);
   auto vid1 = ExtractViewID(n1);
   BOOST_TEST(vid1.first == vid.first);

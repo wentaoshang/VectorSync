@@ -1,4 +1,4 @@
-/* -*- Mode:C++; c-file-style:"gnu"; indent-tabs-mode:nil; -*- */
+/* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #include <boost/test/unit_test.hpp>
 
@@ -79,7 +79,11 @@ BOOST_AUTO_TEST_CASE(EncodeDecode) {
 BOOST_AUTO_TEST_CASE(Merge) {
   ViewInfo vinfo({{"A", "/testA"}, {"B", "/testB"}, {"C", "/testC"}});
   ViewInfo vinfo1({{"E", "/testE"}, {"D", "/testD"}});
-  ViewInfo expected({{"A", "/testA"}, {"B", "/testB"}, {"C", "/testC"}, {"E", "/testE"}, {"D", "/testD"}});
+  ViewInfo expected({{"A", "/testA"},
+                     {"B", "/testB"},
+                     {"C", "/testC"},
+                     {"E", "/testE"},
+                     {"D", "/testD"}});
   BOOST_CHECK_EQUAL(vinfo.Merge(vinfo1), true);
   BOOST_TEST(expected == vinfo);
   BOOST_CHECK_EQUAL(vinfo.Merge(vinfo1), false);
@@ -87,7 +91,11 @@ BOOST_AUTO_TEST_CASE(Merge) {
 }
 
 BOOST_AUTO_TEST_CASE(Remove) {
-  ViewInfo vinfo({{"A", "/testA"}, {"B", "/testB"}, {"C", "/testC"}, {"D", "/testD"}, {"E", "/testE"}});
+  ViewInfo vinfo({{"A", "/testA"},
+                  {"B", "/testB"},
+                  {"C", "/testC"},
+                  {"D", "/testD"},
+                  {"E", "/testE"}});
   std::unordered_set<ndn::vsync::NodeID> to_be_removed{"B", "D"};
   ViewInfo expected({{"A", "/testA"}, {"C", "/testC"}, {"E", "/testE"}});
   vinfo.Remove(to_be_removed);
