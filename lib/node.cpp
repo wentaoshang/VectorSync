@@ -142,13 +142,13 @@ void Node::PublishViewInfo() {
   data_store_[n] = d;
 }
 
-void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
+void Node::PublishData(const std::string& content, uint32_t type) {
   uint64_t seq = ++version_vector_[idx_];
   auto n = MakeDataName(prefix_, id_, view_id_, seq);
 
   if (seq == 1) {
-    // the first data packet contains the view id, round number, and sequence
-    // number of the last packet from the previous round
+    // The first data packet with sequence number 1 contains the view id and
+    // sequence number of the last data packet published in the previous view.
     std::string ldi_wire;
     EncodeESN(last_data_info_, ldi_wire);
     std::shared_ptr<Data> d = std::make_shared<Data>(n);
@@ -160,16 +160,28 @@ void Node::PublishData(const std::vector<uint8_t>& content, uint32_t type) {
     data_store_[n] = d;
 
     BOOST_LOG_TRIVIAL(trace) << "Publish: " << n.toUri()
-                             << " with last data info "
-                             << ToString(last_data_info_);
+                             << " with last data info " << last_data_info_;
 
+    last_data_info_ = {view_id_, seq};
     seq = ++version_vector_[idx_];
     n = MakeDataName(prefix_, id_, view_id_, seq);
   }
 
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(time::seconds(3600));
-  data->setContent(content.data(), content.size());
+  if (type == kUserData) {
+    // Add version vector tag for user data
+    proto::Content content_proto;
+    auto* evv_proto = content_proto.mutable_evv();
+    GenerateEVV(evv_proto);
+    content_proto.set_user_data(content);
+    const std::string& content_proto_str = content_proto.SerializeAsString();
+    data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
+                     content_proto_str.size());
+  } else {
+    data->setContent(reinterpret_cast<const uint8_t*>(content.data()),
+                     content.size());
+  }
   data->setContentType(type);
   key_chain_.sign(*data, signingWithSha256());
   data_store_[n] = data;
@@ -320,14 +332,17 @@ void Node::OnRemoteData(const Data& data) {
 
   // Store a local copy of received data
   data_store_[n] = data.shared_from_this();
-  ;
 
   auto content_type = data.getContentType();
   if (content_type == kHeartbeat) {
     ProcessHeartbeat(index.first);
-  } else if (content_type == kUserData && data_cb_) {
+  } else if (content_type == kUserData) {
     const auto& content = data.getContent();
-    data_cb_(content.value(), content.value_size());
+    proto::Content content_proto;
+    if (content_proto.ParseFromArray(content.value(), content.value_size())) {
+      // if (data_cb_) data_cb_(content_proto.user_data());
+      if (data_cb_) data_cb_(content_proto.DebugString());
+    }
   }
 }
 
@@ -390,6 +405,22 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
   }
 }
 
+void Node::GenerateEVV(proto::EVV* evv_proto) const {
+  for (size_t i = 0; i != member_state_.size(); ++i) {
+    ESN esn;
+    if (i != idx_) {
+      const auto& ms = member_state_[i];
+      esn = ms.recv_window.LastAckedData();
+    } else {
+      esn = last_data_info_;
+    }
+    auto* entry = evv_proto->add_entry();
+    entry->set_view_num(esn.vi.first);
+    entry->set_leader_id(esn.vi.second);
+    entry->set_seq_num(esn.seq);
+  }
+}
+
 void Node::PublishHeartbeat() {
   // Schedule next heartbeat event before publishing heartbeat message
   heartbeat_event_ = scheduler_.scheduleEvent(kHeartbeatInterval,
@@ -402,7 +433,6 @@ void Node::PublishHeartbeat() {
 void Node::ProcessHeartbeat(NodeIndex index) {
   BOOST_LOG_TRIVIAL(trace) << "Recv HEARTBEAT from node idx " << index;
   member_state_[index].last_heartbeat = time::steady_clock::now();
-  ;
 }
 
 void Node::DoHealthcheck() {

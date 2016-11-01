@@ -30,3 +30,9 @@ message ViewInfo {
 
   repeated Entry entry = 1;
 }
+
+// Vsync data content
+message Content {
+  EVV evv = 1;
+  string user_data = 2;
+}

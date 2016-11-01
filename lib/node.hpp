@@ -19,7 +19,7 @@ namespace vsync {
 
 class Node {
  public:
-  using DataCb = std::function<void(const uint8_t*, size_t)>;
+  using DataCb = std::function<void(const std::string&)>;
 
   enum DataType : uint32_t {
     kUserData = 0,
@@ -55,10 +55,11 @@ class Node {
   Node(Face& face, Scheduler& scheduler, KeyChain& key_chain, const NodeID& nid,
        const Name& prefix, DataCb on_data);
 
+  const NodeID& GetNodeID() const { return id_; }
+
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
-  void PublishData(const std::vector<uint8_t>& content,
-                   uint32_t type = kUserData);
+  void PublishData(const std::string& content, uint32_t type = kUserData);
 
  private:
   Node(const Node&) = delete;
@@ -94,6 +95,7 @@ class Node {
    * @param index  Node index of the sender of @p data
    */
   void UpdateReceiveWindow(const Data& data, NodeIndex index);
+  void GenerateEVV(proto::EVV* evv_proto) const;
 
   void DoViewChange(const ViewID& vid);
   void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);

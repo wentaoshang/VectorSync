@@ -16,7 +16,7 @@ class SimpleNode {
       : face_(io_service_),
         scheduler_(io_service_),
         node_(face_, scheduler_, key_chain_, nid, prefix,
-              std::bind(&SimpleNode::OnData, this, _1, _2)),
+              std::bind(&SimpleNode::OnData, this, _1)),
         rengine_(rdevice_()),
         rdist_(500, 10000) {}
 
@@ -27,12 +27,12 @@ class SimpleNode {
   }
 
  private:
-  void OnData(const uint8_t* buf, size_t buf_size) {
-    std::cout << "Upcall OnData: content_size=" << buf_size << std::endl;
+  void OnData(const std::string& content) {
+    std::cout << "Upcall OnData: content=\"" << content << '"' << std::endl;
   }
 
   void PublishData() {
-    node_.PublishData({1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+    node_.PublishData("Hello from " + node_.GetNodeID());
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
                              [this] { PublishData(); });
   }
