@@ -21,7 +21,7 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       view_info_({{nid, prefix}}),
       data_cb_(std::move(on_data)),
       rengine_(rdevice_()),
-      rdist_(100, time::milliseconds(kLeaderElectionTimoutMax).count()),
+      rdist_(100, time::milliseconds(kLeaderElectionTimeoutMax).count()),
       heartbeat_event_(scheduler_),
       healthcheck_event_(scheduler_),
       leader_election_event_(scheduler_) {

@@ -38,7 +38,9 @@ static constexpr time::seconds kHeartbeatInterval = time::seconds(4);
 static constexpr time::seconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
 static constexpr time::seconds kHealthcheckInterval = kHeartbeatInterval;
 // Leader election timeout MUST be smaller than healthcheck interval
-static constexpr time::seconds kLeaderElectionTimoutMax = time::seconds(3);
+static constexpr time::seconds kLeaderElectionTimeoutMax = time::seconds(3);
+static_assert(kLeaderElectionTimeoutMax < kHealthcheckInterval,
+              "Leader election timeout must be less than healthcheck interval");
 
 // Leader will only perform view change when the number of dead members exceeds
 // kViewChangeThreadhold.
