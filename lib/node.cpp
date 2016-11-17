@@ -47,6 +47,23 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
                                                 [this] { DoHealthcheck(); });
 }
 
+void Node::ResetState() {
+  idx_ = view_info_.GetIndexByID(id_).first;
+  is_leader_ = view_id_.second == id_;
+
+  version_vector_.clear();
+  version_vector_.resize(view_info_.Size());
+
+  last_heartbeat_.clear();
+  auto now = time::steady_clock::now();
+  last_heartbeat_.resize(view_info_.Size(), now);
+
+  for (std::size_t i = 0; i < view_info_.Size(); ++i) {
+    auto nid = view_info_.GetIDByIndex(i).first;
+    recv_window_.insert({nid, {}});
+  }
+}
+
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
   auto p = vinfo.GetIndexByID(id_);
   if (!p.second) {
@@ -293,7 +310,7 @@ void Node::OnSyncInterest(const Interest& interest) {
   // Generate sync reply to purge pending sync Interest
   SendSyncReply(n);
 
-  for (size_t i = 0; i < vv.size(); ++i) {
+  for (std::size_t i = 0; i < vv.size(); ++i) {
     if (i == idx_) continue;
 
     auto nid = view_info_.GetIDByIndex(i);
@@ -328,7 +345,7 @@ void Node::OnRemoteData(const Data& data) {
     return;
   }
 
-  UpdateReceiveWindow(data, index.first);
+  UpdateReceiveWindow(data, nid, index.first);
 
   // Store a local copy of received data
   data_store_[n] = data.shared_from_this();
@@ -346,15 +363,16 @@ void Node::OnRemoteData(const Data& data) {
   }
 }
 
-void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
+void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
+                               NodeIndex index) {
   const auto& n = data.getName();
   auto vi = ExtractViewID(n);
   auto seq = ExtractSequenceNumber(n);
 
-  auto& win = member_state_[index].recv_window;
+  auto& win = recv_window_[nid];
 
   // Insert the new seq number into the receive window
-  BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << index << "]: vi=("
+  BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << nid << "]: vi=("
                            << vi.first << "," << vi.second << "),seq=" << seq;
   win.Insert({vi, seq});
 
@@ -389,35 +407,39 @@ void Node::UpdateReceiveWindow(const Data& data, NodeIndex index) {
       return;
     }
 
-    // Fetch missing data in the previous round
-    auto nid = view_info_.GetIDByIndex(index);
-    if (!nid.second)
-      throw Error("Cannot get node ID for index " + std::to_string(index));
-
     auto pfx = view_info_.GetPrefixByIndex(index);
     if (!pfx.second)
       throw Error("Cannot get node prefix for index " + std::to_string(index));
 
     for (auto iter = boost::icl::elements_begin(missing_seq_intervals);
          iter != boost::icl::elements_end(missing_seq_intervals); ++iter) {
-      SendDataInterest(pfx.first, nid.first, ldi.vi, *iter);
+      SendDataInterest(pfx.first, nid, ldi.vi, *iter);
     }
   }
 }
 
 void Node::GenerateEVV(proto::EVV* evv_proto) const {
-  for (size_t i = 0; i != member_state_.size(); ++i) {
-    ESN esn;
-    if (i != idx_) {
-      const auto& ms = member_state_[i];
-      esn = ms.recv_window.LastAckedData();
-    } else {
-      esn = last_data_info_;
-    }
+  for (std::size_t i = 0; i != view_info_.Size(); ++i) {
     auto* entry = evv_proto->add_entry();
-    entry->set_view_num(esn.vi.first);
-    entry->set_leader_id(esn.vi.second);
-    entry->set_seq_num(esn.seq);
+    if (i == idx_) {
+      const ESN& esn = last_data_info_;
+      entry->set_view_num(esn.vi.first);
+      entry->set_leader_id(esn.vi.second);
+      entry->set_seq_num(esn.seq);
+    } else {
+      auto nid = view_info_.GetIDByIndex(i);
+      if (!nid.second) {
+        throw Error("Cannot get node id for index " + std::to_string(i));
+      }
+      auto iter = recv_window_.find(nid.first);
+      if (iter == recv_window_.end()) {
+        throw Error("Cannot get recv window for node id " + nid.first);
+      }
+      const ESN esn = iter->second.LastAckedData();
+      entry->set_view_num(esn.vi.first);
+      entry->set_leader_id(esn.vi.second);
+      entry->set_seq_num(esn.seq);
+    }
   }
 }
 
@@ -432,7 +454,7 @@ void Node::PublishHeartbeat() {
 
 void Node::ProcessHeartbeat(NodeIndex index) {
   BOOST_LOG_TRIVIAL(trace) << "Recv HEARTBEAT from node idx " << index;
-  member_state_[index].last_heartbeat = time::steady_clock::now();
+  last_heartbeat_[index] = time::steady_clock::now();
 }
 
 void Node::DoHealthcheck() {
@@ -443,10 +465,10 @@ void Node::DoHealthcheck() {
   auto now = time::steady_clock::now();
   if (is_leader_) {
     std::unordered_set<NodeID> dead_nodes;
-    for (size_t i = 0; i != member_state_.size(); ++i) {
+    for (std::size_t i = 0; i != view_info_.Size(); ++i) {
       if (i == idx_) continue;
 
-      if (member_state_[i].last_heartbeat + kHeartbeatTimeout < now) {
+      if (last_heartbeat_[i] + kHeartbeatTimeout < now) {
         auto p = view_info_.GetIDByIndex(i);
         if (!p.second)
           throw Error("Cannot find node ID for index " + std::to_string(i));
@@ -471,7 +493,7 @@ void Node::DoHealthcheck() {
     if (!p.second)
       throw Error("Cannot find node index for leader " + leader_id);
 
-    if (member_state_[p.first].last_heartbeat + kHeartbeatTimeout < now) {
+    if (last_heartbeat_[p.first] + kHeartbeatTimeout < now) {
       BOOST_LOG_TRIVIAL(debug) << "Leader " << leader_id << " is dead";
       // Start leader election timer
       leader_election_event_ =

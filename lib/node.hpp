@@ -65,15 +65,7 @@ class Node {
   Node(const Node&) = delete;
   Node& operator=(const Node&) = delete;
 
-  void ResetState() {
-    idx_ = view_info_.GetIndexByID(id_).first;
-    is_leader_ = view_id_.second == id_;
-    version_vector_.clear();
-    version_vector_.resize(view_info_.Size());
-    member_state_.clear();
-    auto now = time::steady_clock::now();
-    member_state_.resize(view_info_.Size(), {{}, now});
-  }
+  void ResetState();
 
   inline void SendSyncInterest();
   inline void SendDataInterest(const Name& prefix, const NodeID& nid,
@@ -92,9 +84,11 @@ class Node {
    *        there is a hole (i.e., two non-consecutive esns) in the window.
    *
    * @param data   Received data from remote node
+   * @param nid    Node ID of the sender of @p data
    * @param index  Node index of the sender of @p data
    */
-  void UpdateReceiveWindow(const Data& data, NodeIndex index);
+  void UpdateReceiveWindow(const Data& data, const NodeID& nid,
+                           NodeIndex index);
   void GenerateEVV(proto::EVV* evv_proto) const;
 
   void DoViewChange(const ViewID& vid);
@@ -116,12 +110,7 @@ class Node {
   VersionVector version_vector_;
 
   ESN last_data_info_ = {};
-
-  struct MemberState {
-    ReceiveWindow recv_window;
-    time::steady_clock::TimePoint last_heartbeat;
-  };
-  std::vector<MemberState> member_state_;
+  std::unordered_map<NodeID, ReceiveWindow> recv_window_;
 
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;
   DataCb data_cb_;
@@ -133,6 +122,7 @@ class Node {
   util::scheduler::ScopedEventId heartbeat_event_;
   util::scheduler::ScopedEventId healthcheck_event_;
   util::scheduler::ScopedEventId leader_election_event_;
+  std::vector<time::steady_clock::TimePoint> last_heartbeat_;
 };
 
 }  // namespace vsync
