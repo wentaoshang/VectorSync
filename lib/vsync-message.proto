@@ -16,11 +16,6 @@ message ESN {
   uint64 seq_num = 3;
 }
 
-// Extended version vector
-message EVV {
-  repeated ESN entry = 1;
-}
-
 // View Info
 message ViewInfo {
   message Entry {
@@ -33,6 +28,6 @@ message ViewInfo {
 
 // Vsync data content
 message Content {
-  EVV evv = 1;
+  VV vv = 1;
   string user_data = 2;
 }

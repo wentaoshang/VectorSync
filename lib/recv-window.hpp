@@ -105,7 +105,7 @@ class ReceiveWindow {
   /**
    * @brief Returns the extended sequence number of the last acknowledged data
    *        in this receive window (i.e., all previous data upto this one have
-   *        been received) .
+   *        been received).
    */
   ESN LastAckedData() const {
     for (const auto& p : state_) {
@@ -115,6 +115,18 @@ class ReceiveWindow {
       }
     }
     return {};
+  }
+
+  /**
+   * @brief Returns the sequence number of the last acknowledged data in the
+   *        view @p view_num.  Returns 0 if no data has been received yet.
+   */
+  uint64_t LastAckedData(uint64_t view_num) const {
+    auto iter = state_.find(view_num);
+    if (iter == state_.end())
+      return 0;
+    else
+      return iter->second.LastAckedData();
   }
 
   friend bool operator==(const ReceiveWindow& l, const ReceiveWindow& r) {

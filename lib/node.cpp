@@ -189,8 +189,8 @@ void Node::PublishData(const std::string& content, uint32_t type) {
   if (type == kUserData) {
     // Add version vector tag for user data
     proto::Content content_proto;
-    auto* evv_proto = content_proto.mutable_evv();
-    GenerateEVV(evv_proto);
+    auto* vv_proto = content_proto.mutable_vv();
+    GenerateDataVV(vv_proto);
     content_proto.set_user_data(content);
     const std::string& content_proto_str = content_proto.SerializeAsString();
     data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
@@ -358,7 +358,7 @@ void Node::OnRemoteData(const Data& data) {
     proto::Content content_proto;
     if (content_proto.ParseFromArray(content.value(), content.value_size())) {
       // if (data_cb_) data_cb_(content_proto.user_data());
-      if (data_cb_) data_cb_(content_proto.DebugString());
+      if (data_cb_) data_cb_(content_proto.ShortDebugString());
     }
   }
 }
@@ -418,14 +418,10 @@ void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
   }
 }
 
-void Node::GenerateEVV(proto::EVV* evv_proto) const {
+void Node::GenerateDataVV(proto::VV* vv_proto) const {
   for (std::size_t i = 0; i != view_info_.Size(); ++i) {
-    auto* entry = evv_proto->add_entry();
     if (i == idx_) {
-      const ESN& esn = last_data_info_;
-      entry->set_view_num(esn.vi.first);
-      entry->set_leader_id(esn.vi.second);
-      entry->set_seq_num(esn.seq);
+      vv_proto->add_entry(version_vector_[i]);
     } else {
       auto nid = view_info_.GetIDByIndex(i);
       if (!nid.second) {
@@ -435,10 +431,8 @@ void Node::GenerateEVV(proto::EVV* evv_proto) const {
       if (iter == recv_window_.end()) {
         throw Error("Cannot get recv window for node id " + nid.first);
       }
-      const ESN esn = iter->second.LastAckedData();
-      entry->set_view_num(esn.vi.first);
-      entry->set_leader_id(esn.vi.second);
-      entry->set_seq_num(esn.seq);
+      uint64_t seq = iter->second.LastAckedData(view_id_.first);
+      vv_proto->add_entry(seq);
     }
   }
 }

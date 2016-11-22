@@ -89,7 +89,7 @@ class Node {
    */
   void UpdateReceiveWindow(const Data& data, const NodeID& nid,
                            NodeIndex index);
-  void GenerateEVV(proto::EVV* evv_proto) const;
+  void GenerateDataVV(proto::VV* vv_proto) const;
 
   void DoViewChange(const ViewID& vid);
   void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);
