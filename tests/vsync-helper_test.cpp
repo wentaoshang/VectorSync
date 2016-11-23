@@ -39,7 +39,9 @@ BOOST_AUTO_TEST_CASE(Names) {
 
   uint8_t seq = 55;
   NodeID nid = "A";
-  auto n2 = MakeDataName("/", nid, vid, seq);
+  auto n2 = MakeDataName("/test", nid, vid, seq);
+  auto pfx = ExtractNodePrefix(n2);
+  BOOST_TEST(pfx == ndn::Name("/test"));
   auto nid1 = ExtractNodeID(n2);
   BOOST_TEST(nid == nid1);
   auto seq1 = ExtractSequenceNumber(n2);

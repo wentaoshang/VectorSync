@@ -36,24 +36,48 @@ inline std::string ToString(const VersionVector& v) {
   return s;
 }
 
+inline void EncodeVV(const VersionVector& v, proto::VV* vv_proto) {
+  for (uint64_t n : v) {
+    vv_proto->add_entry(n);
+  }
+}
+
 inline void EncodeVV(const VersionVector& v, std::string& out) {
   proto::VV vv_proto;
-  for (uint64_t n : v) {
-    vv_proto.add_entry(n);
-  }
+  EncodeVV(v, &vv_proto);
   vv_proto.AppendToString(&out);
 }
 
-inline VersionVector DecodeVV(const void* buf, size_t buf_size) {
-  proto::VV vv_proto;
-  if (!vv_proto.ParseFromArray(buf, buf_size)) return {};
-
+inline VersionVector DecodeVV(const proto::VV& vv_proto) {
   VersionVector vv(vv_proto.entry_size(), 0);
   for (int i = 0; i < vv_proto.entry_size(); ++i) {
     vv[i] = vv_proto.entry(i);
   }
   return vv;
 }
+
+inline VersionVector DecodeVV(const void* buf, size_t buf_size) {
+  proto::VV vv_proto;
+  if (!vv_proto.ParseFromArray(buf, buf_size)) return {};
+  return DecodeVV(vv_proto);
+}
+
+struct VVCompare {
+  bool operator()(const VersionVector& l, const VersionVector& r) const {
+    if (l.size() != r.size()) return false;
+    size_t equal_count = 0;
+    for (size_t i = 0; i < l.size(); ++i) {
+      if (l[i] > r[i])
+        return false;
+      else if (l[i] == r[i])
+        ++equal_count;
+    }
+    if (equal_count == l.size())
+      return false;
+    else
+      return true;
+  }
+};
 
 // Helpers for sync Interest processing
 
@@ -96,6 +120,8 @@ inline Name MakeDataName(const Name& prefix, const NodeID& nid,
   n.append(nid).appendNumber(vid.first).append(vid.second).appendNumber(seq);
   return n;
 }
+
+inline Name ExtractNodePrefix(const Name& n) { return n.getPrefix(-4); }
 
 inline NodeID ExtractNodeID(const Name& n) { return n.get(-4).toUri(); }
 

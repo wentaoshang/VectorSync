@@ -5,6 +5,7 @@
 
 #include <exception>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <unordered_map>
@@ -62,6 +63,9 @@ class Node {
   void PublishData(const std::string& content, uint32_t type = kUserData);
 
  private:
+  using VVQueue =
+      std::map<VersionVector, std::shared_ptr<const Data>, VVCompare>;
+
   Node(const Node&) = delete;
   Node& operator=(const Node&) = delete;
 
@@ -72,7 +76,7 @@ class Node {
                                const ViewID& vid, uint64_t seq);
   inline void SendSyncReply(const Name& n);
   inline void PublishHeartbeat();
-  inline void ProcessHeartbeat(NodeIndex index);
+  inline void ProcessHeartbeat(const ViewID& vid, const NodeID& nid);
 
   void OnSyncInterest(const Interest& interest);
   void OnDataInterest(const Interest& interest);
@@ -85,11 +89,12 @@ class Node {
    *
    * @param data   Received data from remote node
    * @param nid    Node ID of the sender of @p data
-   * @param index  Node index of the sender of @p data
+   * @param vi     View ID of the view in which @p data is published
+   * @param seq    Sequence number of @p data
    */
   void UpdateReceiveWindow(const Data& data, const NodeID& nid,
-                           NodeIndex index);
-  void GenerateDataVV(proto::VV* vv_proto) const;
+                           const ViewID& vi, uint64_t seq);
+  VersionVector GenerateDataVV() const;
 
   void DoViewChange(const ViewID& vid);
   void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);
@@ -97,6 +102,8 @@ class Node {
   void DoHealthcheck();
 
   inline void ProcessLeaderElectionTimeout();
+
+  void PrintCausalityGraph() const;
 
   Face& face_;
   Scheduler& scheduler_;
@@ -110,7 +117,13 @@ class Node {
   VersionVector version_vector_;
 
   ESN last_data_info_ = {};
+
+  // Hash table mapping node ID to its receive window
   std::unordered_map<NodeID, ReceiveWindow> recv_window_;
+
+  // Ordered map mapping view id to a hash table that maps node id to its
+  // version vector queue
+  std::map<ViewID, std::unordered_map<NodeID, VVQueue>> causality_graph_;
 
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;
   DataCb data_cb_;

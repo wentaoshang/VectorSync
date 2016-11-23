@@ -58,9 +58,12 @@ void Node::ResetState() {
   auto now = time::steady_clock::now();
   last_heartbeat_.resize(view_info_.Size(), now);
 
+  auto& graph = causality_graph_[view_id_];
+
   for (std::size_t i = 0; i < view_info_.Size(); ++i) {
     auto nid = view_info_.GetIDByIndex(i).first;
     recv_window_.insert({nid, {}});
+    graph.insert({nid, {}});
   }
 }
 
@@ -188,13 +191,18 @@ void Node::PublishData(const std::string& content, uint32_t type) {
   data->setFreshnessPeriod(time::seconds(3600));
   if (type == kUserData) {
     // Add version vector tag for user data
+    auto vv = GenerateDataVV();
     proto::Content content_proto;
     auto* vv_proto = content_proto.mutable_vv();
-    GenerateDataVV(vv_proto);
+    EncodeVV(vv, vv_proto);
     content_proto.set_user_data(content);
     const std::string& content_proto_str = content_proto.SerializeAsString();
     data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
                      content_proto_str.size());
+
+    auto& queue = causality_graph_[view_id_][id_];
+    queue.insert({vv, data});
+    PrintCausalityGraph();
   } else {
     data->setContent(reinterpret_cast<const uint8_t*>(content.data()),
                      content.size());
@@ -338,37 +346,33 @@ void Node::OnRemoteData(const Data& data) {
   }
 
   auto nid = ExtractNodeID(n);
+  auto vi = ExtractViewID(n);
+  auto seq = ExtractSequenceNumber(n);
 
-  auto index = view_info_.GetIndexByID(nid);
-  if (!index.second) {
-    BOOST_LOG_TRIVIAL(debug) << "Unkown node id in received data: " << nid;
-    return;
-  }
-
-  UpdateReceiveWindow(data, nid, index.first);
+  UpdateReceiveWindow(data, nid, vi, seq);
 
   // Store a local copy of received data
   data_store_[n] = data.shared_from_this();
 
   auto content_type = data.getContentType();
   if (content_type == kHeartbeat) {
-    ProcessHeartbeat(index.first);
+    ProcessHeartbeat(vi, nid);
   } else if (content_type == kUserData) {
     const auto& content = data.getContent();
     proto::Content content_proto;
     if (content_proto.ParseFromArray(content.value(), content.value_size())) {
-      // if (data_cb_) data_cb_(content_proto.user_data());
-      if (data_cb_) data_cb_(content_proto.ShortDebugString());
+      auto vv = DecodeVV(content_proto.vv());
+      auto& queue = causality_graph_[vi][nid];
+      queue.insert({vv, data.shared_from_this()});
+      PrintCausalityGraph();
+      // if (data_cb_) data_cb_(content_proto.ShortDebugString());
+      if (data_cb_) data_cb_(content_proto.user_data());
     }
   }
 }
 
 void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
-                               NodeIndex index) {
-  const auto& n = data.getName();
-  auto vi = ExtractViewID(n);
-  auto seq = ExtractSequenceNumber(n);
-
+                               const ViewID& vi, uint64_t seq) {
   auto& win = recv_window_[nid];
 
   // Insert the new seq number into the receive window
@@ -407,21 +411,19 @@ void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
       return;
     }
 
-    auto pfx = view_info_.GetPrefixByIndex(index);
-    if (!pfx.second)
-      throw Error("Cannot get node prefix for index " + std::to_string(index));
-
+    auto pfx = ExtractNodePrefix(data.getName());
     for (auto iter = boost::icl::elements_begin(missing_seq_intervals);
          iter != boost::icl::elements_end(missing_seq_intervals); ++iter) {
-      SendDataInterest(pfx.first, nid, ldi.vi, *iter);
+      SendDataInterest(pfx, nid, ldi.vi, *iter);
     }
   }
 }
 
-void Node::GenerateDataVV(proto::VV* vv_proto) const {
+VersionVector Node::GenerateDataVV() const {
+  VersionVector vv(view_info_.Size());
   for (std::size_t i = 0; i != view_info_.Size(); ++i) {
     if (i == idx_) {
-      vv_proto->add_entry(version_vector_[i]);
+      vv[i] = version_vector_[i] - 1;
     } else {
       auto nid = view_info_.GetIDByIndex(i);
       if (!nid.second) {
@@ -431,10 +433,10 @@ void Node::GenerateDataVV(proto::VV* vv_proto) const {
       if (iter == recv_window_.end()) {
         throw Error("Cannot get recv window for node id " + nid.first);
       }
-      uint64_t seq = iter->second.LastAckedData(view_id_.first);
-      vv_proto->add_entry(seq);
+      vv[i] = iter->second.LastAckedData(view_id_.first);
     }
   }
+  return vv;
 }
 
 void Node::PublishHeartbeat() {
@@ -446,9 +448,21 @@ void Node::PublishHeartbeat() {
   PublishData({'H', 'E', 'A', 'R', 'T', 'B', 'E', 'A', 'T', 0}, kHeartbeat);
 }
 
-void Node::ProcessHeartbeat(NodeIndex index) {
-  BOOST_LOG_TRIVIAL(trace) << "Recv HEARTBEAT from node idx " << index;
-  last_heartbeat_[index] = time::steady_clock::now();
+void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
+  if (vid != view_id_) {
+    BOOST_LOG_TRIVIAL(debug) << "Ignore heartbeat for non-current view id ("
+                             << vid.first << "," << vid.second << ")";
+    return;
+  }
+
+  auto index = view_info_.GetIndexByID(nid);
+  if (!index.second) {
+    BOOST_LOG_TRIVIAL(debug) << "Unkown node id in received heartbeat: " << nid;
+    return;
+  }
+
+  BOOST_LOG_TRIVIAL(trace) << "Recv HEARTBEAT from node idx " << index.first;
+  last_heartbeat_[index.first] = time::steady_clock::now();
 }
 
 void Node::DoHealthcheck() {
@@ -507,6 +521,23 @@ void Node::ProcessLeaderElectionTimeout() {
   BOOST_LOG_TRIVIAL(debug) << "Move to new view: id=(" << view_id_.first << ","
                            << view_id_.second << "), vinfo=" << view_info_;
   PublishHeartbeat();
+}
+
+void Node::PrintCausalityGraph() const {
+  BOOST_LOG_TRIVIAL(trace) << "CausalGraph:";
+  for (const auto& p : causality_graph_) {
+    BOOST_LOG_TRIVIAL(trace) << " VID=(" << p.first.first << ","
+                             << p.first.second << "):";
+    for (const auto& pvv_queue : p.second) {
+      BOOST_LOG_TRIVIAL(trace) << "  NID=" << pvv_queue.first << ":";
+      BOOST_LOG_TRIVIAL(trace) << "   Q=[";
+      for (const auto& pvv : pvv_queue.second) {
+        BOOST_LOG_TRIVIAL(trace) << "      " << ToString(pvv.first) << ":"
+                                 << pvv.second->getName().toUri();
+      }
+      BOOST_LOG_TRIVIAL(trace) << "     ]";
+    }
+  }
 }
 
 }  // namespace vsync
