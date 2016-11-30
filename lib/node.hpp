@@ -62,6 +62,8 @@ class Node {
 
   void PublishData(const std::string& content, uint32_t type = kUserData);
 
+  void PrintCausalityGraph() const;
+
  private:
   using VVQueue =
       std::map<VersionVector, std::shared_ptr<const Data>, VVCompare>;
@@ -102,8 +104,6 @@ class Node {
   void DoHealthcheck();
 
   inline void ProcessLeaderElectionTimeout();
-
-  void PrintCausalityGraph() const;
 
   Face& face_;
   Scheduler& scheduler_;

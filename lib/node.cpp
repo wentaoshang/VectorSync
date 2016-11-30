@@ -189,28 +189,23 @@ void Node::PublishData(const std::string& content, uint32_t type) {
 
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(time::seconds(3600));
-  if (type == kUserData) {
-    // Add version vector tag for user data
-    auto vv = GenerateDataVV();
-    proto::Content content_proto;
-    auto* vv_proto = content_proto.mutable_vv();
-    EncodeVV(vv, vv_proto);
-    content_proto.set_user_data(content);
-    const std::string& content_proto_str = content_proto.SerializeAsString();
-    data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
-                     content_proto_str.size());
-
-    auto& queue = causality_graph_[view_id_][id_];
-    queue.insert({vv, data});
-    PrintCausalityGraph();
-  } else {
-    data->setContent(reinterpret_cast<const uint8_t*>(content.data()),
-                     content.size());
-  }
+  // Add version vector tag for user data
+  auto vv = GenerateDataVV();
+  proto::Content content_proto;
+  auto* vv_proto = content_proto.mutable_vv();
+  EncodeVV(vv, vv_proto);
+  content_proto.set_user_data(content);
+  const std::string& content_proto_str = content_proto.SerializeAsString();
+  data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
+                   content_proto_str.size());
   data->setContentType(type);
   key_chain_.sign(*data, signingWithSha256());
+
   data_store_[n] = data;
   last_data_info_ = {view_id_, seq};
+  auto& queue = causality_graph_[view_id_][id_];
+  queue.insert({vv, data});
+  PrintCausalityGraph();
 
   BOOST_LOG_TRIVIAL(trace) << "Publish: " << n.toUri();
 
