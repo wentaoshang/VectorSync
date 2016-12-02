@@ -26,8 +26,9 @@ class Node {
     kUserData = 0,
     kLastDataInfo = 9666,
     kHeartbeat = 9667,
-    kVsyncReply = 9668,
+    kSyncReply = 9668,
     kViewInfo = 9669,
+    kVectorClock = 9670,
   };
 
   class Error : public std::exception {
@@ -84,6 +85,10 @@ class Node {
   void OnDataInterest(const Interest& interest);
   void OnRemoteData(const Data& data);
 
+  void SendVectorInterest(const Name& sync_interest_name);
+  void PublishVector(const Name& sync_interest_name, const std::string& digest);
+  void ProcessVector(const Data& data);
+
   /**
    * @brief Adds the extended sequence number of @p data into the receive
    *        window of node @p index and slides the window forward until
@@ -108,13 +113,16 @@ class Node {
   Face& face_;
   Scheduler& scheduler_;
   KeyChain& key_chain_;
+
   const NodeID id_;
   Name prefix_;
   NodeIndex idx_ = 0;
   bool is_leader_ = true;
   ViewID view_id_;
   ViewInfo view_info_;
-  VersionVector version_vector_;
+  VersionVector vector_clock_;
+  std::unordered_map<std::string, VersionVector> digest_log_;
+  VVQueue vector_data_queue_;
 
   ESN last_data_info_ = {};
 

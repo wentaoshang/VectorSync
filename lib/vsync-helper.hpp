@@ -15,6 +15,18 @@
 namespace ndn {
 namespace vsync {
 
+// Hepbers for view id
+
+inline std::ostream& operator<<(std::ostream& os, const ViewID& vi) {
+  return os << '(' << vi.first << ',' << vi.second << ')';
+}
+
+inline std::string ToString(const ViewID& vi) {
+  std::ostringstream os;
+  os << '(' << vi.first << ',' << vi.second << ')';
+  return os.str();
+}
+
 // Helpers for version vector processing
 
 inline VersionVector Merge(const VersionVector& v1, const VersionVector& v2) {
@@ -79,24 +91,29 @@ struct VVCompare {
   }
 };
 
-// Helpers for sync Interest processing
+// Helpers for interest processing
 
-inline Name MakeVsyncInterestName(const ViewID& vid, const VersionVector& vv) {
-  // name = /[vsync_prefix]/[view_num]/[leader_id]/[version_vector]
-  std::string vv_encode;
-  EncodeVV(vv, vv_encode);
-  Name n(kVsyncPrefix);
-  n.appendNumber(vid.first)
-      .append(vid.second)
-      .append(reinterpret_cast<const uint8_t*>(vv_encode.data()),
-              vv_encode.size());
+inline Name MakeSyncInterestName(const ViewID& vid, const std::string& digest) {
+  // name = /[vsync_prefix]/digest/[view_num]/[leader_id]/[vector_clock_digest]
+  Name n(kSyncPrefix);
+  n.append("digest").appendNumber(vid.first).append(vid.second).append(digest);
+  return n;
+}
+
+inline Name MakeVectorInterestName(const Name& sync_interest_name) {
+  // name = /[vsync_prefix]/vector/[view_num]/[leader_id]/[vector_clock_digest]
+  Name n(kSyncPrefix);
+  n.append("vector")
+      .append(sync_interest_name.get(-3))
+      .append(sync_interest_name.get(-2))
+      .append(sync_interest_name.get(-1));
   return n;
 }
 
 inline Name MakeViewInfoName(const ViewID& vid) {
-  // name = /[vsync_prefix]/[view_num]/[leader_id]/vinfo
-  Name n(kVsyncPrefix);
-  n.appendNumber(vid.first).append(vid.second).append("vinfo");
+  // name = /[vsync_prefix]/vinfo/[view_num]/[leader_id]/%00
+  Name n(kSyncPrefix);
+  n.append("vinfo").appendNumber(vid.first).append(vid.second).appendNumber(0);
   return n;
 }
 
@@ -106,9 +123,8 @@ inline ViewID ExtractViewID(const Name& n) {
   return {view_num, leader_id};
 }
 
-inline VersionVector ExtractVersionVector(const Name& n) {
-  const auto& comp = n.get(-1);
-  return DecodeVV(comp.value(), comp.value_size());
+inline std::string ExtractVectorDigest(const Name& n) {
+  return n.get(-1).toUri();
 }
 
 // Helpers for data processing
@@ -150,12 +166,12 @@ inline std::pair<ESN, bool> DecodeESN(const void* buf, size_t buf_size) {
 
 inline std::string ToString(const ESN& s) {
   std::ostringstream os;
-  os << "{(" << s.vi.first << ',' << s.vi.second << ")," << s.seq << '}';
+  os << '{' << s.vi << ',' << s.seq << '}';
   return os.str();
 }
 
 inline std::ostream& operator<<(std::ostream& os, const ESN& s) {
-  return os << "{(" << s.vi.first << ',' << s.vi.second << ")," << s.seq << '}';
+  return os << '{' << s.vi << ',' << s.seq << '}';
 }
 
 inline bool operator==(const ESN& l, const ESN& r) {

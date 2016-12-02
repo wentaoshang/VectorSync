@@ -2,6 +2,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <ndn-cxx/util/digest.hpp>
+
 #include "vsync-helper.hpp"
 
 BOOST_AUTO_TEST_SUITE(TestVsyncHelper);
@@ -30,12 +32,17 @@ BOOST_AUTO_TEST_CASE(VVEncodeDecode) {
 BOOST_AUTO_TEST_CASE(Names) {
   ViewID vid{1, "A"};
   VersionVector vv{1, 2, 1, 2};
-  auto n1 = MakeVsyncInterestName(vid, vv);
+  ndn::util::Sha256 hasher;
+  hasher.update(reinterpret_cast<const uint8_t*>(vv.data()),
+                vv.size() * sizeof(vv[0]));
+  auto digest = hasher.toString();
+
+  auto n1 = MakeSyncInterestName(vid, digest);
   auto vid1 = ExtractViewID(n1);
   BOOST_TEST(vid1.first == vid.first);
   BOOST_TEST(vid1.second == vid.second);
-  auto vv1 = ExtractVersionVector(n1);
-  BOOST_TEST(vv1 == vv, boost::test_tools::per_element());
+  auto d1 = ExtractVectorDigest(n1);
+  BOOST_TEST(d1 == digest);
 
   uint8_t seq = 55;
   NodeID nid = "A";

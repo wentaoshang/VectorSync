@@ -32,7 +32,7 @@ struct ESN {
   uint64_t seq;
 };
 
-static const Name kVsyncPrefix = Name("/ndn/broadcast/vsync");
+static const Name kSyncPrefix = Name("/ndn/broadcast/vsync");
 
 static constexpr time::seconds kHeartbeatInterval = time::seconds(4);
 static constexpr time::seconds kHeartbeatTimeout = 3 * kHeartbeatInterval;

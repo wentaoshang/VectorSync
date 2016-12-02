@@ -4,6 +4,8 @@
 
 #include <boost/log/trivial.hpp>
 
+#include <ndn-cxx/util/digest.hpp>
+
 #include "node.hpp"
 #include "vsync-helper.hpp"
 
@@ -29,7 +31,7 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
   if (is_leader_) PublishViewInfo();
 
   face_.setInterestFilter(
-      kVsyncPrefix, std::bind(&Node::OnSyncInterest, this, _2),
+      kSyncPrefix, std::bind(&Node::OnSyncInterest, this, _2),
       [this](const Name&, const std::string& reason) {
         throw Error("Failed to register vsync prefix: " + reason);
       });
@@ -51,8 +53,11 @@ void Node::ResetState() {
   idx_ = view_info_.GetIndexByID(id_).first;
   is_leader_ = view_id_.second == id_;
 
-  version_vector_.clear();
-  version_vector_.resize(view_info_.Size());
+  vector_clock_.clear();
+  vector_clock_.resize(view_info_.Size());
+
+  digest_log_.clear();
+  vector_data_queue_.clear();
 
   last_heartbeat_.clear();
   auto now = time::steady_clock::now();
@@ -145,12 +150,14 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
     PublishViewInfo();
     PublishHeartbeat();
   }
-  BOOST_LOG_TRIVIAL(debug) << "Move to new view: id=(" << view_id_.first << ","
-                           << view_id_.second << "), vinfo=" << view_info_;
+  BOOST_LOG_TRIVIAL(debug) << "Move to new view: id=" << ToString(view_id_)
+                           << ",vinfo=" << view_info_;
 }
 
 void Node::PublishViewInfo() {
   auto n = MakeViewInfoName(view_id_);
+  BOOST_LOG_TRIVIAL(trace) << "Publish: d.name=" << n.toUri()
+                           << ",vinfo=" << view_info_;
   std::string content;
   view_info_.Encode(content);
   std::shared_ptr<Data> d = std::make_shared<Data>(n);
@@ -163,7 +170,7 @@ void Node::PublishViewInfo() {
 }
 
 void Node::PublishData(const std::string& content, uint32_t type) {
-  uint64_t seq = ++version_vector_[idx_];
+  uint64_t seq = ++vector_clock_[idx_];
   auto n = MakeDataName(prefix_, id_, view_id_, seq);
 
   if (seq == 1) {
@@ -179,11 +186,11 @@ void Node::PublishData(const std::string& content, uint32_t type) {
     key_chain_.sign(*d, signingWithSha256());
     data_store_[n] = d;
 
-    BOOST_LOG_TRIVIAL(trace) << "Publish: " << n.toUri()
-                             << " with last data info " << last_data_info_;
+    BOOST_LOG_TRIVIAL(trace) << "Publish: d.name=" << n.toUri()
+                             << ",ldi=" << last_data_info_;
 
     last_data_info_ = {view_id_, seq};
-    seq = ++version_vector_[idx_];
+    seq = ++vector_clock_[idx_];
     n = MakeDataName(prefix_, id_, view_id_, seq);
   }
 
@@ -205,9 +212,9 @@ void Node::PublishData(const std::string& content, uint32_t type) {
   last_data_info_ = {view_id_, seq};
   auto& queue = causality_graph_[view_id_][id_];
   queue.insert({vv, data});
-  PrintCausalityGraph();
+  // PrintCausalityGraph();
 
-  BOOST_LOG_TRIVIAL(trace) << "Publish: " << n.toUri();
+  BOOST_LOG_TRIVIAL(trace) << "Publish: d.name=" << n.toUri();
 
   SendSyncInterest();
 }
@@ -216,7 +223,7 @@ void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
                             const ViewID& vid, uint64_t seq) {
   auto in = MakeDataName(prefix, nid, vid, seq);
   Interest inst(in, time::milliseconds(1000));
-  BOOST_LOG_TRIVIAL(trace) << "Ftch: i.name=" << in.toUri();
+  BOOST_LOG_TRIVIAL(trace) << "Send: i.name=" << in.toUri();
   face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
                         [](const Interest&, const lp::Nack&) {},
                         [](const Interest&) {});
@@ -224,20 +231,29 @@ void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
 
 void Node::OnDataInterest(const Interest& interest) {
   const auto& n = interest.getName();
+  BOOST_LOG_TRIVIAL(trace) << "Recv: i.name=" << n.toUri();
   auto iter = data_store_.find(n);
   if (iter == data_store_.end()) {
-    BOOST_LOG_TRIVIAL(debug) << "Unrecognized data interest: " << n.toUri();
+    BOOST_LOG_TRIVIAL(debug) << "Unknown data name: " << n.toUri();
     // TODO: send L7 nack based on the sequence number in the Interest name
   } else {
+    BOOST_LOG_TRIVIAL(trace) << "Send: d.name="
+                             << iter->second->getName().toUri();
     face_.put(*iter->second);
   }
 }
 
 void Node::SendSyncInterest() {
-  auto n = MakeVsyncInterestName(view_id_, version_vector_);
-  BOOST_LOG_TRIVIAL(trace) << "Send: vi=(" << view_id_.first << ","
-                           << view_id_.second
-                           << "), vv=" << ToString(version_vector_);
+  util::Sha256 hasher;
+  hasher.update(reinterpret_cast<const uint8_t*>(vector_clock_.data()),
+                vector_clock_.size() * sizeof(vector_clock_[0]));
+  auto digest = hasher.toString();
+
+  auto n = MakeSyncInterestName(view_id_, digest);
+
+  PublishVector(n, digest);
+
+  BOOST_LOG_TRIVIAL(trace) << "Send: i.name=" << n.toUri();
   Interest i(n, time::milliseconds(1000));
   face_.expressInterest(i, [](const Interest&, const Data&) {},
                         [](const Interest&, const lp::Nack&) {},
@@ -248,10 +264,10 @@ void Node::SendSyncReply(const Name& n) {
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(time::milliseconds(50));
   std::string vv_encode;
-  EncodeVV(version_vector_, vv_encode);
+  EncodeVV(vector_clock_, vv_encode);
   data->setContent(reinterpret_cast<const uint8_t*>(vv_encode.data()),
                    vv_encode.size());
-  data->setContentType(kVsyncReply);
+  data->setContentType(kSyncReply);
   key_chain_.sign(*data, signingWithSha256());
   face_.put(*data);
 }
@@ -260,60 +276,125 @@ void Node::OnSyncInterest(const Interest& interest) {
   const auto& n = interest.getName();
   BOOST_LOG_TRIVIAL(trace) << "Recv: i.name=" << n.toUri();
 
-  // Handle request for ViewInfo
-  if (n.size() == kVsyncPrefix.size() + 3 && n.get(-1).toUri() == "vinfo") {
-    auto iter = data_store_.find(n);
-    if (iter == data_store_.end()) {
-      BOOST_LOG_TRIVIAL(debug) << "Unrecognized view info name: " << n.toUri();
-    } else {
-      face_.put(*iter->second);
-    }
-    return;
-  }
-
   // Check sync interest name size
-  if (n.size() != kVsyncPrefix.size() + 3) {
+  if (n.size() != kSyncPrefix.size() + 4) {
     BOOST_LOG_TRIVIAL(error) << "Invalid sync interest name: " << n.toUri();
     return;
   }
 
   auto vi = ExtractViewID(n);
-  auto vv = ExtractVersionVector(n);
+  auto digest = ExtractVectorDigest(n);
 
-  BOOST_LOG_TRIVIAL(trace) << "Recv: vi=(" << vi.first << "," << vi.second
-                           << "),vv=" << ToString(vv);
+  auto dispatcher = n.get(-4).toUri();
+  if (dispatcher == "vinfo") {
+    auto iter = data_store_.find(n);
+    if (iter != data_store_.end()) {
+      BOOST_LOG_TRIVIAL(trace) << "Send: d.name="
+                               << iter->second->getName().toUri();
+      face_.put(*iter->second);
+    }
+  } else if (dispatcher == "digest") {
+    // Generate sync reply to purge pending sync Interest
+    // TBD: should we leave vectorsync interest in the PIT?
+    SendSyncReply(n);
 
-  // Check view id
-  if (vi != view_id_) {
-    DoViewChange(vi);
+    // Check view id
+    if (vi != view_id_) {
+      DoViewChange(vi);
+      return;
+    }
+
+    // Check vector digest
+    if (digest_log_.find(digest) == digest_log_.end()) SendVectorInterest(n);
+  } else if (dispatcher == "vector") {
+    auto digest_log_iter = digest_log_.find(digest);
+    if (digest_log_iter != digest_log_.end()) {
+      const auto& vv = digest_log_iter->second;
+      auto vvqueue_iter = vector_data_queue_.find(vv);
+      if (vvqueue_iter != vector_data_queue_.end()) {
+        BOOST_LOG_TRIVIAL(trace) << "Send: d.name="
+                                 << vvqueue_iter->second->getName().toUri();
+        face_.put(*vvqueue_iter->second);
+      }
+    }
+  } else {
+    BOOST_LOG_TRIVIAL(info) << "Unknown dispatch tag in sync interest: "
+                            << dispatcher;
+  }
+}
+
+void Node::SendVectorInterest(const Name& sync_interest_name) {
+  auto n = MakeVectorInterestName(sync_interest_name);
+  BOOST_LOG_TRIVIAL(trace) << "Send: i.name=" << n.toUri();
+  Interest i(n, time::milliseconds(1000));
+  face_.expressInterest(i, std::bind(&Node::ProcessVector, this, _2),
+                        [](const Interest&, const lp::Nack&) {},
+                        [](const Interest&) {});
+}
+
+void Node::PublishVector(const Name& sync_interest_name,
+                         const std::string& digest) {
+  auto n = MakeVectorInterestName(sync_interest_name);
+  BOOST_LOG_TRIVIAL(trace) << "Publish: d.name=" << n.toUri()
+                           << ",vv=" << ToString(vector_clock_);
+
+  std::shared_ptr<Data> data = std::make_shared<Data>(n);
+  data->setFreshnessPeriod(time::seconds(3600));
+  std::string vv_encode;
+  EncodeVV(vector_clock_, vv_encode);
+  data->setContent(reinterpret_cast<const uint8_t*>(vv_encode.data()),
+                   vv_encode.size());
+  data->setContentType(kVectorClock);
+  key_chain_.sign(*data, signingWithSha256());
+
+  // TBD: use a simple fixed-capacity FIFO queue instead to purge the log?
+  digest_log_[digest] = vector_clock_;
+  vector_data_queue_[vector_clock_] = data;
+}
+
+void Node::ProcessVector(const Data& data) {
+  const auto& n = data.getName();
+  BOOST_LOG_TRIVIAL(trace) << "Recv: d.name=" << n.toUri();
+
+  if (data.getContentType() != kVectorClock) {
+    BOOST_LOG_TRIVIAL(info) << "Wrong content type for vector data";
     return;
   }
+
+  auto vi = ExtractViewID(n);
+  if (vi != view_id_) {
+    BOOST_LOG_TRIVIAL(info) << "Ignore version vector from different view: "
+                            << ToString(vi);
+    return;
+  }
+
+  // Parse version vector
+  const auto& content = data.getContent();
+  auto vv = DecodeVV(content.value(), content.value_size());
 
   // Detect invalid version vector
-  if (vv.size() != version_vector_.size()) {
+  if (vv.size() != vector_clock_.size()) {
     BOOST_LOG_TRIVIAL(info) << "Ignore version vector of different size: "
-                            << ToString(vv);
+                            << vv.size();
     return;
   }
 
-  if (vv[idx_] > version_vector_[idx_]) {
+  BOOST_LOG_TRIVIAL(trace) << "Receive vector clock " << ToString(vv);
+
+  if (vv[idx_] > vector_clock_[idx_]) {
     BOOST_LOG_TRIVIAL(info)
         << "Ignore version vector with larger sequence number for ourselves: "
         << ToString(vv);
   }
 
   // Process version vector
-  VersionVector old_vv = version_vector_;
-  version_vector_ = Merge(old_vv, vv);
+  VersionVector old_vv = vector_clock_;
+  vector_clock_ = Merge(old_vv, vv);
 
-  BOOST_LOG_TRIVIAL(trace) << "Updt: vi=(" << view_id_.first << ","
-                           << view_id_.second
-                           << "), vv=" << ToString(version_vector_);
+  BOOST_LOG_TRIVIAL(trace) << "Update: view_id=" << ToString(view_id_)
+                           << ",vector_clock=" << ToString(vector_clock_);
 
-  // Generate sync reply to purge pending sync Interest
-  SendSyncReply(n);
-
-  for (std::size_t i = 0; i < vv.size(); ++i) {
+  for (std::size_t i = 0; i != vv.size(); ++i) {
     if (i == idx_) continue;
 
     auto nid = view_info_.GetIDByIndex(i);
@@ -330,11 +411,13 @@ void Node::OnSyncInterest(const Interest& interest) {
       }
     }
   }
+
+  // TBD: send sync interest if the vector has changed?
 }
 
 void Node::OnRemoteData(const Data& data) {
   const auto& n = data.getName();
-  BOOST_LOG_TRIVIAL(trace) << "Recv: d.name=" << n.toUri();
+  BOOST_LOG_TRIVIAL(trace) << "Recv data: name=" << n.toUri();
   if (n.size() < 5) {
     BOOST_LOG_TRIVIAL(error) << "Invalid data name: " << n.toUri();
     return;
@@ -359,7 +442,7 @@ void Node::OnRemoteData(const Data& data) {
       auto vv = DecodeVV(content_proto.vv());
       auto& queue = causality_graph_[vi][nid];
       queue.insert({vv, data.shared_from_this()});
-      PrintCausalityGraph();
+      // PrintCausalityGraph();
       // if (data_cb_) data_cb_(content_proto.ShortDebugString());
       if (data_cb_) data_cb_(content_proto.user_data());
     }
@@ -371,8 +454,8 @@ void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
   auto& win = recv_window_[nid];
 
   // Insert the new seq number into the receive window
-  BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << nid << "]: vi=("
-                           << vi.first << "," << vi.second << "),seq=" << seq;
+  BOOST_LOG_TRIVIAL(trace) << "Insert into recv_window[" << nid
+                           << "]: view_id=" << ToString(vi) << ",seq=" << seq;
   win.Insert({vi, seq});
 
   // Check last data info
@@ -381,28 +464,26 @@ void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
     const auto& content = data.getContent();
     auto p = DecodeESN(content.value(), content.value_size());
     if (!p.second) {
-      BOOST_LOG_TRIVIAL(debug) << "Cannot decode last data info from node idx "
-                               << index;
+      BOOST_LOG_TRIVIAL(debug) << "Cannot decode last data info from node "
+                               << nid;
       return;
     }
 
     auto ldi = p.first;
     BOOST_LOG_TRIVIAL(trace) << "Recv last data info: " << ToString(ldi)
-                             << " from node idx " << index;
+                             << " from node " << nid;
 
     auto p2 = win.CheckForMissingData(ldi, vi);
     if (!p2.second) {
-      BOOST_LOG_TRIVIAL(debug) << "Failed to check missing data for node idx "
-                               << index << ", vid=(" << ldi.vi.first << ","
-                               << ldi.vi.second << ")";
+      BOOST_LOG_TRIVIAL(debug) << "Failed to check missing data for node "
+                               << nid << ",view_id=" << ToString(ldi.vi);
       return;
     }
 
     const auto& missing_seq_intervals = p2.first;
     if (missing_seq_intervals.empty()) {
-      BOOST_LOG_TRIVIAL(debug) << "No missing data from node idx " << index
-                               << ", vid=(" << ldi.vi.first << ","
-                               << ldi.vi.second << ")";
+      BOOST_LOG_TRIVIAL(debug) << "No missing data from node " << nid
+                               << ",view_id=" << ToString(ldi.vi);
       return;
     }
 
@@ -418,7 +499,7 @@ VersionVector Node::GenerateDataVV() const {
   VersionVector vv(view_info_.Size());
   for (std::size_t i = 0; i != view_info_.Size(); ++i) {
     if (i == idx_) {
-      vv[i] = version_vector_[i] - 1;
+      vv[i] = vector_clock_[i] - 1;
     } else {
       auto nid = view_info_.GetIDByIndex(i);
       if (!nid.second) {
@@ -439,14 +520,13 @@ void Node::PublishHeartbeat() {
   heartbeat_event_ = scheduler_.scheduleEvent(kHeartbeatInterval,
                                               [this] { PublishHeartbeat(); });
 
-  BOOST_LOG_TRIVIAL(trace) << "Send HEARTBEAT";
-  PublishData({'H', 'E', 'A', 'R', 'T', 'B', 'E', 'A', 'T', 0}, kHeartbeat);
+  PublishData("Heartbeat", kHeartbeat);
 }
 
 void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
   if (vid != view_id_) {
-    BOOST_LOG_TRIVIAL(debug) << "Ignore heartbeat for non-current view id ("
-                             << vid.first << "," << vid.second << ")";
+    BOOST_LOG_TRIVIAL(debug) << "Ignore heartbeat for non-current view id "
+                             << ToString(vid);
     return;
   }
 
@@ -456,7 +536,8 @@ void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
     return;
   }
 
-  BOOST_LOG_TRIVIAL(trace) << "Recv HEARTBEAT from node idx " << index.first;
+  BOOST_LOG_TRIVIAL(trace) << "Recv HEARTBEAT from node " << nid
+                           << " [index=" << index.first << ']';
   last_heartbeat_[index.first] = time::steady_clock::now();
 }
 
@@ -477,7 +558,7 @@ void Node::DoHealthcheck() {
           throw Error("Cannot find node ID for index " + std::to_string(i));
 
         dead_nodes.insert(p.first);
-        BOOST_LOG_TRIVIAL(trace) << "Found dead node ID: " << p.first;
+        BOOST_LOG_TRIVIAL(trace) << "Node " << p.first << " is dead";
       }
     }
     if (dead_nodes.size() >= kViewChangeThreshold) {
@@ -485,9 +566,9 @@ void Node::DoHealthcheck() {
       ++view_id_.first;
       ResetState();
       PublishViewInfo();
-      BOOST_LOG_TRIVIAL(debug) << "Move to new view: id=(" << view_id_.first
-                               << "," << view_id_.second
-                               << "), vinfo=" << view_info_;
+      BOOST_LOG_TRIVIAL(debug)
+          << "Move to new view: view_id=" << ToString(view_id_)
+          << ",vinfo=" << view_info_;
       PublishHeartbeat();
     }
   } else {
@@ -507,30 +588,31 @@ void Node::DoHealthcheck() {
 }
 
 void Node::ProcessLeaderElectionTimeout() {
+  BOOST_LOG_TRIVIAL(trace) << "Leader election timer goes off";
   // Remove leader from the view
   view_info_.Remove({view_id_.second});
   // Set self as leader for the new view
   view_id_ = {view_id_.first + 1, id_};
   ResetState();
   PublishViewInfo();
-  BOOST_LOG_TRIVIAL(debug) << "Move to new view: id=(" << view_id_.first << ","
-                           << view_id_.second << "), vinfo=" << view_info_;
+  BOOST_LOG_TRIVIAL(debug) << "Move to new view: view_id=" << ToString(view_id_)
+                           << ",vinfo=" << view_info_;
   PublishHeartbeat();
 }
 
 void Node::PrintCausalityGraph() const {
   BOOST_LOG_TRIVIAL(trace) << "CausalGraph:";
   for (const auto& p : causality_graph_) {
-    BOOST_LOG_TRIVIAL(trace) << " VID=(" << p.first.first << ","
+    BOOST_LOG_TRIVIAL(trace) << " ViewID=(" << p.first.first << ","
                              << p.first.second << "):";
     for (const auto& pvv_queue : p.second) {
-      BOOST_LOG_TRIVIAL(trace) << "  NID=" << pvv_queue.first << ":";
-      BOOST_LOG_TRIVIAL(trace) << "   Q=[";
+      BOOST_LOG_TRIVIAL(trace) << "  NodeID=" << pvv_queue.first << ":";
+      BOOST_LOG_TRIVIAL(trace) << "   Queue=[";
       for (const auto& pvv : pvv_queue.second) {
         BOOST_LOG_TRIVIAL(trace) << "      " << ToString(pvv.first) << ":"
                                  << pvv.second->getName().toUri();
       }
-      BOOST_LOG_TRIVIAL(trace) << "     ]";
+      BOOST_LOG_TRIVIAL(trace) << "         ]";
     }
   }
 }
