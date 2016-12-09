@@ -46,5 +46,12 @@ def build(bld):
                 name = 'simple',
                 source = 'examples/simple.cpp',
                 includes = 'examples',
-                use = 'NDNCXX BOOST vsync',
+                use = 'NDN_CXX BOOST vsync',
+                cxxflags = '-Wno-deprecated-declarations')
+
+    bld.program(target = 'kv-store',
+                name = 'kv-store',
+                source = 'examples/kv-store.cpp',
+                includes = 'examples',
+                use = 'NDN_CXX BOOST vsync',
                 cxxflags = '-Wno-deprecated-declarations')

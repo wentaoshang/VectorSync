@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <random>
 #include <set>
 #include <unordered_map>
 
@@ -20,7 +21,8 @@ namespace vsync {
 
 class Node {
  public:
-  using DataCb = std::function<void(const std::string&)>;
+  using DataCb =
+      std::function<void(const std::string&, const VersionVector& vv)>;
 
   enum DataType : uint32_t {
     kUserData = 0,
@@ -61,7 +63,8 @@ class Node {
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
-  void PublishData(const std::string& content, uint32_t type = kUserData);
+  VersionVector PublishData(const std::string& content,
+                            uint32_t type = kUserData);
 
   void PrintCausalityGraph() const;
 

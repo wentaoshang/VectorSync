@@ -38,6 +38,16 @@ inline VersionVector Merge(const VersionVector& v1, const VersionVector& v2) {
   return res;
 }
 
+inline std::ostream& operator<<(std::ostream& os, const VersionVector& v) {
+  os << '[';
+  for (size_t i = 0; i != v.size(); ++i) {
+    os << v[i];
+    if (i != v.size() - 1) os << ',';
+  }
+  os << ']';
+  return os;
+}
+
 inline std::string ToString(const VersionVector& v) {
   std::string s(1, '[');
   s.append(std::accumulate(std::next(v.begin()), v.end(), std::to_string(v[0]),

@@ -169,7 +169,7 @@ void Node::PublishViewInfo() {
   data_store_[n] = d;
 }
 
-void Node::PublishData(const std::string& content, uint32_t type) {
+VersionVector Node::PublishData(const std::string& content, uint32_t type) {
   uint64_t seq = ++vector_clock_[idx_];
   auto n = MakeDataName(prefix_, id_, view_id_, seq);
 
@@ -217,6 +217,8 @@ void Node::PublishData(const std::string& content, uint32_t type) {
   BOOST_LOG_TRIVIAL(trace) << "Publish: d.name=" << n.toUri();
 
   SendSyncInterest();
+
+  return vv;
 }
 
 void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
@@ -443,8 +445,7 @@ void Node::OnRemoteData(const Data& data) {
       auto& queue = causality_graph_[vi][nid];
       queue.insert({vv, data.shared_from_this()});
       // PrintCausalityGraph();
-      // if (data_cb_) data_cb_(content_proto.ShortDebugString());
-      if (data_cb_) data_cb_(content_proto.user_data());
+      if (data_cb_) data_cb_(content_proto.user_data(), vv);
     }
   }
 }
