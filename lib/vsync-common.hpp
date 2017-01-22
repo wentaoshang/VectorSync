@@ -26,12 +26,6 @@ using ViewID = std::pair<uint64_t, NodeID>;
 using VersionVector = std::vector<uint64_t>;
 using NodeIndex = std::size_t;
 
-// Extended sequence number
-struct ESN {
-  ViewID vi;
-  uint64_t seq;
-};
-
 static const Name kSyncPrefix = Name("/ndn/broadcast/vsync");
 
 static constexpr time::seconds kHeartbeatInterval = time::seconds(4);

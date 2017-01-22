@@ -55,14 +55,4 @@ BOOST_AUTO_TEST_CASE(Names) {
   BOOST_TEST(seq == seq1);
 }
 
-BOOST_AUTO_TEST_CASE(ESNEncodeDecode) {
-  ESN esn = {{0x12345678, "ABC"}, 0x1234};
-  std::string buf;
-  EncodeESN(esn, buf);
-
-  auto p1 = DecodeESN(buf.data(), buf.size());
-  BOOST_TEST(p1.second == true);
-  BOOST_CHECK_EQUAL(p1.first, esn);
-}
-
 BOOST_AUTO_TEST_SUITE_END();

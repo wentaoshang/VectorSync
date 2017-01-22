@@ -154,39 +154,6 @@ inline uint64_t ExtractSequenceNumber(const Name& n) {
   return n.get(-1).toNumber();
 }
 
-inline void EncodeESN(const ESN& ldi, std::string& out) {
-  proto::ESN esn_proto;
-  esn_proto.set_view_num(ldi.vi.first);
-  esn_proto.set_leader_id(ldi.vi.second);
-  esn_proto.set_seq_num(ldi.seq);
-  esn_proto.AppendToString(&out);
-}
-
-inline std::pair<ESN, bool> DecodeESN(const void* buf, size_t buf_size) {
-  proto::ESN esn_proto;
-  if (!esn_proto.ParseFromArray(buf, buf_size)) return {};
-
-  ESN esn;
-  esn.vi.first = esn_proto.view_num();
-  esn.vi.second = esn_proto.leader_id();
-  esn.seq = esn_proto.seq_num();
-  return {esn, true};
-}
-
-inline std::string ToString(const ESN& s) {
-  std::ostringstream os;
-  os << '{' << s.vi << ',' << s.seq << '}';
-  return os.str();
-}
-
-inline std::ostream& operator<<(std::ostream& os, const ESN& s) {
-  return os << '{' << s.vi << ',' << s.seq << '}';
-}
-
-inline bool operator==(const ESN& l, const ESN& r) {
-  return l.vi == r.vi && l.seq == r.seq;
-}
-
 }  // namespace vsync
 }  // namespace ndn
 

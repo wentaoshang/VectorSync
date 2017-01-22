@@ -9,13 +9,6 @@ message VV {
   repeated uint64 entry = 1;
 }
 
-// Extended Sequence Number
-message ESN {
-  uint64 view_num = 1;
-  string leader_id = 2;
-  uint64 seq_num = 3;
-}
-
 // View Info
 message ViewInfo {
   message Entry {
