@@ -20,160 +20,62 @@ class ReceiveWindow {
   using SeqNumInterval = boost::icl::discrete_interval<uint64_t>;
   using SeqNumIntervalSet = boost::icl::interval_set<uint64_t>;
 
-  bool Insert(const ESN& esn) {
-    if (esn.vi.first == 0 || esn.vi.second.empty() || esn.seq == 0)
-      return false;
-
-    auto& entry = state_[esn.vi.first];
-    if (!entry.leader_id.empty()) {
-      // If the entry for the same view number exits,
-      // the leader_id must be the same.
-      if (entry.leader_id != esn.vi.second) return false;
-    } else {
-      // This is newly created entry. Set leader id now.
-      entry.leader_id = esn.vi.second;
-    }
-
-    // Insert seq number into the window
-    entry.win.insert(SeqNumInterval(esn.seq));
-    return true;
-  }
+  void Insert(const uint64_t seq) { win_.insert(SeqNumInterval(seq)); }
 
   /**
-   * @brief Given the last data info in @p ldi, checks for missing data in
-   *        the same view as @p ldi.
+   * @brief   Checks for missing data before sequence number @p seq.
    *
-   * @param ldi  Last data info represented as ESN
-   * @param vid  View ID of the view in which @p ldi was received
+   * @param   seq  Sequence number to check
+   * @return  An interval set of sequence numbers containing all the missing
+   *          data.
    */
-  std::pair<SeqNumIntervalSet, bool> CheckForMissingData(const ESN& ldi,
-                                                         const ViewID& vid) {
-    // Ignore last data info with view/seq number equal to 0.
-    if (ldi.vi.first == 0 || ldi.seq == 0) return {};
-
-    // vid must be greater than ldi.vid.
-    if (vid.first <= ldi.vi.first) return {};
+  SeqNumIntervalSet CheckForMissingData(const uint64_t seq) {
+    // Ignore sequence number 0.
+    if (seq == 0) return {};
 
     SeqNumIntervalSet r;
-    r.insert(SeqNumInterval::closed(1, ldi.seq));
-    auto& entry = state_[ldi.vi.first];
-    if (!entry.leader_id.empty()) {
-      if (entry.leader_id != ldi.vi.second) return {};
-    } else {
-      entry.leader_id = ldi.vi.second;
-    }
-    if (entry.last_seq_num != 0) {
-      // Last data info is already set. Check if it is consistent with
-      // the input parameters.
-      if (entry.last_seq_num != ldi.seq) return {};
-      if (entry.next_vi != vid) return {};
-    } else {
-      entry.last_seq_num = ldi.seq;
-      entry.next_vi = vid;
-    }
-    r -= entry.win;
-    return {r, true};
+    r.insert(SeqNumInterval::closed(1, seq));
+    r -= win_;
+    return r;
+  }
+
+  bool HasAllDataBefore(uint64_t seq) const {
+    return win_.iterative_size() >= 1 && win_.begin()->upper() >= seq;
   }
 
   /**
-   * @brief Checks whether the window includes all published data in view @p vid
+   * @brief  Returns the left end of the receive window, which represents
+   *         the sequence number before which all data has been received.
    */
-  bool HasAllData(const ViewID& vid) const {
-    auto iter = state_.find(vid.first);
-    if (iter == state_.end()) return false;
-    if (iter->second.leader_id != vid.second) return false;
-    return iter->second.HasAllData();
-  }
-
-  /**
-   * @brief Checks whether the window includes all published data before seq num
-   *        @p seq in view @p vid and all published data in previous views
-   */
-  bool HasAllDataBefore(const ViewID& vid, uint64_t seq) const {
-    for (const auto& p : state_) {
-      if (p.first < vid.first && !p.second.HasAllData()) return false;
-      if (p.first == vid.first) {
-        if (p.second.leader_id != vid.second)
-          return false;
-        else
-          return p.second.HasAllDataBefore(seq);
-      }
-    }
-    return true;
-  }
-
-  /**
-   * @brief Returns the extended sequence number of the last acknowledged data
-   *        in this receive window (i.e., all previous data upto this one have
-   *        been received).
-   */
-  ESN LastAckedData() const {
-    for (const auto& p : state_) {
-      if (!p.second.HasAllData()) {
-        uint64_t s = p.second.LastAckedData();
-        return {{p.first, p.second.leader_id}, s};
-      }
-    }
-    return {};
-  }
-
-  /**
-   * @brief Returns the sequence number of the last acknowledged data in the
-   *        view @p view_num.  Returns 0 if no data has been received yet.
-   */
-  uint64_t LastAckedData(uint64_t view_num) const {
-    auto iter = state_.find(view_num);
-    if (iter == state_.end())
+  uint64_t LowerBound() const {
+    if (win_.empty())
       return 0;
     else
-      return iter->second.LastAckedData();
+      return win_.begin()->upper();
+  }
+
+  /**
+   * @brief  Returns the right end of the receive window, which represents
+   *         the highest sequence number the node has ever announced.
+   */
+  uint64_t UpperBound() const {
+    if (win_.empty())
+      return 0;
+    else
+      return win_.rbegin()->upper();
   }
 
   friend bool operator==(const ReceiveWindow& l, const ReceiveWindow& r) {
-    return l.state_ == r.state_;
+    return l.win_ == r.win_;
   }
 
   friend std::ostream& operator<<(std::ostream& os, const ReceiveWindow& rw) {
-    os << "ReceiveWindow{";
-    for (const auto& p : rw.state_) {
-      os << "[vi=(" << p.first << "," << p.second.leader_id
-         << "),win=" << p.second.win << "]";
-    }
-    os << "}";
+    os << "ReceiveWindow=" << rw.win_;
     return os;
   }
 
  private:
-  struct Entry {
-    std::string leader_id;  // Leader id of this view
-    SeqNumIntervalSet win;  // Intervals of received seq nums
-    ViewID next_vi;         // View number of the next round after this
-    uint64_t last_seq_num;  // Last sequence number in this view
-
-    bool HasAllData() const {
-      return last_seq_num != 0 && win.iterative_size() == 1 &&
-             win.begin()->upper() == last_seq_num;
-    }
-
-    bool HasAllDataBefore(uint64_t seq) const {
-      return win.iterative_size() >= 1 && win.begin()->upper() >= seq;
-    }
-
-    uint64_t LastAckedData() const {
-      if (win.empty())
-        return 0;
-      else
-        return win.begin()->upper();
-    }
-
-    friend bool operator==(const Entry& l, const Entry& r) {
-      return l.leader_id == r.leader_id && l.win == r.win &&
-             l.next_vi == r.next_vi && l.last_seq_num == r.last_seq_num;
-    }
-  };
-
-  // Map from view number to Entry
-  std::map<uint64_t, Entry> state_;
+  SeqNumIntervalSet win_;  // Intervals of received seq nums
 };
 
 }  // namespace vsync

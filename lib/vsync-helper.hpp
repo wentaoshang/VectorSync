@@ -139,17 +139,16 @@ inline std::string ExtractVectorDigest(const Name& n) {
 
 // Helpers for data processing
 
-inline Name MakeDataName(const Name& prefix, const NodeID& nid,
-                         const ViewID& vid, uint64_t seq) {
-  // name = /node_prefix/node_id/view_num/leader_id/seq_num
+inline Name MakeDataName(const Name& prefix, const NodeID& nid, uint64_t seq) {
+  // name = /[node_prefix]/[node_id]/[seq_num]
   Name n(prefix);
-  n.append(nid).appendNumber(vid.first).append(vid.second).appendNumber(seq);
+  n.append(nid).appendNumber(seq);
   return n;
 }
 
-inline Name ExtractNodePrefix(const Name& n) { return n.getPrefix(-4); }
+inline Name ExtractNodePrefix(const Name& n) { return n.getPrefix(-2); }
 
-inline NodeID ExtractNodeID(const Name& n) { return n.get(-4).toUri(); }
+inline NodeID ExtractNodeID(const Name& n) { return n.get(-2).toUri(); }
 
 inline uint64_t ExtractSequenceNumber(const Name& n) {
   return n.get(-1).toNumber();

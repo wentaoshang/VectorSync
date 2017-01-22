@@ -21,8 +21,8 @@ namespace vsync {
 
 class Node {
  public:
-  using DataCb =
-      std::function<void(const std::string&, const VersionVector& vv)>;
+  using DataCb = std::function<void(const std::string&, const ViewID&,
+                                    const VersionVector&)>;
 
   enum DataType : uint32_t {
     kUserData = 0,
@@ -79,7 +79,7 @@ class Node {
 
   inline void SendSyncInterest();
   inline void SendDataInterest(const Name& prefix, const NodeID& nid,
-                               const ViewID& vid, uint64_t seq);
+                               uint64_t seq);
   inline void SendSyncReply(const Name& n);
   inline void PublishHeartbeat();
   inline void ProcessHeartbeat(const ViewID& vid, const NodeID& nid);
@@ -94,16 +94,14 @@ class Node {
 
   /**
    * @brief Adds the extended sequence number of @p data into the receive
-   *        window of node @p index and slides the window forward until
+   *        window of node @p nid and slides the window forward until
    *        there is a hole (i.e., two non-consecutive esns) in the window.
    *
    * @param data   Received data from remote node
    * @param nid    Node ID of the sender of @p data
-   * @param vi     View ID of the view in which @p data is published
    * @param seq    Sequence number of @p data
    */
-  void UpdateReceiveWindow(const Data& data, const NodeID& nid,
-                           const ViewID& vi, uint64_t seq);
+  void UpdateReceiveWindow(const Data& data, const NodeID& nid, uint64_t seq);
   VersionVector GenerateDataVV() const;
 
   void DoViewChange(const ViewID& vid);
@@ -126,8 +124,6 @@ class Node {
   VersionVector vector_clock_;
   std::unordered_map<std::string, VersionVector> digest_log_;
   VVQueue vector_data_queue_;
-
-  ESN last_data_info_ = {};
 
   // Hash table mapping node ID to its receive window
   std::unordered_map<NodeID, ReceiveWindow> recv_window_;

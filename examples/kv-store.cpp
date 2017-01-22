@@ -32,7 +32,7 @@ class KeyValueStore {
       : face_(io_service_),
         scheduler_(io_service_),
         node_(face_, scheduler_, key_chain_, nid, prefix,
-              std::bind(&KeyValueStore::OnData, this, _1, _2)),
+              std::bind(&KeyValueStore::OnData, this, _1, _2, _3)),
         rengine_(rdevice_()),
         rdist_(2000, 5000) {}
 
@@ -83,7 +83,8 @@ class KeyValueStore {
   }
 
  private:
-  void OnData(const std::string& content, const VersionVector& vv) {
+  void OnData(const std::string& content, const ViewID& vi,
+              const VersionVector& vv) {
     auto sep = content.find_first_of(':');
     if (sep == std::string::npos) {
       std::cout << "Cannot parse key:value pair: " << content << std::endl;
@@ -93,7 +94,8 @@ class KeyValueStore {
     std::string key = content.substr(0, sep);
     std::string value = content.substr(sep + 1);
     kvs_[key].insert({value, vv});
-    std::cout << "Recv " << key << ':' << value << ",vv=" << vv << std::endl;
+    std::cout << "Recv " << key << ':' << value << ",vi=" << vi << ",vv=" << vv
+              << std::endl;
   }
 
   boost::asio::io_service io_service_;

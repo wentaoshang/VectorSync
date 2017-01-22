@@ -28,6 +28,8 @@ message ViewInfo {
 
 // Vsync data content
 message Content {
-  VV vv = 1;
-  string user_data = 2;
+  uint64 view_num = 1;
+  string leader_id = 2;
+  VV vv = 3;
+  string user_data = 4;
 }
