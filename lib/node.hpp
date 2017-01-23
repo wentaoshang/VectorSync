@@ -122,8 +122,6 @@ class Node {
   ViewID view_id_;
   ViewInfo view_info_;
   VersionVector vector_clock_;
-  std::unordered_map<std::string, VersionVector> digest_log_;
-  VVQueue vector_data_queue_;
 
   // Hash table mapping node ID to its receive window
   std::unordered_map<NodeID, ReceiveWindow> recv_window_;

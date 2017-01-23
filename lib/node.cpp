@@ -56,9 +56,6 @@ void Node::ResetState() {
   vector_clock_.clear();
   vector_clock_.resize(view_info_.Size());
 
-  digest_log_.clear();
-  vector_data_queue_.clear();
-
   last_heartbeat_.clear();
   auto now = time::steady_clock::now();
   last_heartbeat_.resize(view_info_.Size(), now);
@@ -102,6 +99,9 @@ void Node::DoViewChange(const ViewID& vid) {
                       (view_num == view_id_.first && leader_id < id_)))) {
     // Fetch view info
     auto n = MakeViewInfoName(vid);
+    // Suppress this interest if this view info has been received before
+    if (data_store_.find(n) != data_store_.end()) return;
+
     Interest i(n, time::seconds(4));
     BOOST_LOG_TRIVIAL(trace) << "Send: i.name=" << n.toUri();
     face_.expressInterest(i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
@@ -127,20 +127,20 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
 
   BOOST_LOG_TRIVIAL(trace) << "Recv: " << view_info;
 
+  // Store a local copy of view info data
+  data_store_[n] = vinfo.shared_from_this();
   // TODO: verify view info using common trust anchor
 
   ViewID vid = ExtractViewID(n);
   if (vid.first > view_id_.first) {
     if (!LoadView(vid, view_info)) {
-      BOOST_LOG_TRIVIAL(debug) << "Cannot load received view " << view_info;
+      BOOST_LOG_TRIVIAL(debug) << "Cannot load received view: vinfo="
+                               << view_info;
       return;
     }
 
     // Cancel any leader election event
     leader_election_event_.cancel();
-
-    // Store a local copy of view info data
-    data_store_[n] = vinfo.shared_from_this();
   } else if (is_leader_ &&
              ((vid.first < view_id_.first && vid.second != id_) ||
               (vid.first == view_id_.first && vid.second < id_))) {
@@ -297,27 +297,25 @@ void Node::OnSyncInterest(const Interest& interest) {
       return;
     }
 
-    // Check vector digest
-    if (digest_log_.find(digest) == digest_log_.end()) SendVectorInterest(n);
+    SendVectorInterest(n);
   } else if (dispatcher == "vector") {
-    auto digest_log_iter = digest_log_.find(digest);
-    if (digest_log_iter != digest_log_.end()) {
-      const auto& vv = digest_log_iter->second;
-      auto vvqueue_iter = vector_data_queue_.find(vv);
-      if (vvqueue_iter != vector_data_queue_.end()) {
-        BOOST_LOG_TRIVIAL(trace) << "Send: d.name="
-                                 << vvqueue_iter->second->getName().toUri();
-        face_.put(*vvqueue_iter->second);
-      }
+    auto iter = data_store_.find(n);
+    if (iter != data_store_.end()) {
+      BOOST_LOG_TRIVIAL(trace) << "Send: d.name="
+                               << iter->second->getName().toUri();
+      face_.put(*iter->second);
     }
   } else {
-    BOOST_LOG_TRIVIAL(info) << "Unknown dispatch tag in sync interest: "
+    BOOST_LOG_TRIVIAL(info) << "Unknown dispatch tag in interest name: "
                             << dispatcher;
   }
 }
 
 void Node::SendVectorInterest(const Name& sync_interest_name) {
   auto n = MakeVectorInterestName(sync_interest_name);
+  // Ignore sync interest if the vector data has been fetched before
+  if (data_store_.find(n) != data_store_.end()) return;
+
   BOOST_LOG_TRIVIAL(trace) << "Send: i.name=" << n.toUri();
   Interest i(n, time::milliseconds(1000));
   face_.expressInterest(i, std::bind(&Node::ProcessVector, this, _2),
@@ -340,9 +338,8 @@ void Node::PublishVector(const Name& sync_interest_name,
   data->setContentType(kVectorClock);
   key_chain_.sign(*data, signingWithSha256());
 
-  // TBD: use a simple fixed-capacity FIFO queue instead to purge the log?
-  digest_log_[digest] = vector_clock_;
-  vector_data_queue_[vector_clock_] = data;
+  data_store_[n] = data;
+  // TODO: implement garbage collection to purge old vector data
 }
 
 void Node::ProcessVector(const Data& data) {
