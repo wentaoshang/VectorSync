@@ -12,14 +12,32 @@
 
 #include "vsync-common.hpp"
 
+// hack ADL for operator<<
+
+namespace std {
+
+inline std::ostream& operator<<(std::ostream& os,
+                                const ndn::vsync::ViewID& vi) {
+  return os << '(' << vi.first << ',' << vi.second << ')';
+}
+
+inline std::ostream& operator<<(std::ostream& os,
+                                const ndn::vsync::VersionVector& v) {
+  os << '[';
+  for (size_t i = 0; i != v.size(); ++i) {
+    os << v[i];
+    if (i != v.size() - 1) os << ',';
+  }
+  os << ']';
+  return os;
+}
+
+}  // namespace std
+
 namespace ndn {
 namespace vsync {
 
 // Hepbers for view id
-
-inline std::ostream& operator<<(std::ostream& os, const ViewID& vi) {
-  return os << '(' << vi.first << ',' << vi.second << ')';
-}
 
 inline std::string ToString(const ViewID& vi) {
   std::ostringstream os;
@@ -36,16 +54,6 @@ inline VersionVector Merge(const VersionVector& v1, const VersionVector& v2) {
   std::transform(v1.begin(), v1.end(), v2.begin(), res.begin(),
                  [](uint64_t l, uint64_t r) { return std::max(l, r); });
   return res;
-}
-
-inline std::ostream& operator<<(std::ostream& os, const VersionVector& v) {
-  os << '[';
-  for (size_t i = 0; i != v.size(); ++i) {
-    os << v[i];
-    if (i != v.size() - 1) os << ',';
-  }
-  os << ']';
-  return os;
 }
 
 inline std::string ToString(const VersionVector& v) {
