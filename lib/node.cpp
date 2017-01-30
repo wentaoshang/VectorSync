@@ -76,7 +76,7 @@ bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
     return false;
   }
 
-  VSYNC_LOG_TRACE("Load view: vid=" << vid << ", vinfo=" << vinfo);
+  VSYNC_LOG_INFO("Load view: vid=" << vid << ", vinfo=" << vinfo);
 
   idx_ = p.first;
   view_id_ = vid;
@@ -369,8 +369,8 @@ void Node::ProcessVector(const Data& data) {
   VersionVector old_vv = vector_clock_;
   vector_clock_ = Merge(old_vv, vv);
 
-  VSYNC_LOG_TRACE("Update: view_id=" << view_id_
-                                     << ", vector_clock=" << vector_clock_);
+  VSYNC_LOG_INFO("Update: view_id=" << view_id_
+                                    << ", vector_clock=" << vector_clock_);
 
   for (std::size_t i = 0; i != vv.size(); ++i) {
     if (i == idx_) continue;
@@ -492,8 +492,8 @@ void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
     return;
   }
 
-  VSYNC_LOG_TRACE("Recv: HEARTBEAT from node " << nid << " [idx=" << index.first
-                                               << ']');
+  VSYNC_LOG_INFO("Recv: HEARTBEAT from node " << nid << " [idx=" << index.first
+                                              << ']');
   last_heartbeat_[index.first] = time::steady_clock::now();
 }
 
@@ -543,7 +543,7 @@ void Node::DoHealthcheck() {
 }
 
 void Node::ProcessLeaderElectionTimeout() {
-  VSYNC_LOG_TRACE("Leader election timer goes off");
+  VSYNC_LOG_INFO("Leader election timer goes off");
   // Remove leader from the view
   view_info_.Remove({view_id_.second});
   // Set self as leader for the new view
@@ -556,17 +556,17 @@ void Node::ProcessLeaderElectionTimeout() {
 }
 
 void Node::PrintCausalityGraph() const {
-  VSYNC_LOG_INFO("CausalGraph:");
+  VSYNC_LOG_DEBUG("CausalGraph:");
   for (const auto& p : causality_graph_) {
-    VSYNC_LOG_INFO(" ViewID=(" << p.first.first << ',' << p.first.second
-                               << "):");
+    VSYNC_LOG_DEBUG(" ViewID=(" << p.first.first << ',' << p.first.second
+                                << "):");
     for (const auto& pvv_queue : p.second) {
-      VSYNC_LOG_INFO("  NodeID=" << pvv_queue.first << ':');
-      VSYNC_LOG_INFO("   Queue=[");
+      VSYNC_LOG_DEBUG("  NodeID=" << pvv_queue.first << ':');
+      VSYNC_LOG_DEBUG("   Queue=[");
       for (const auto& pvv : pvv_queue.second) {
-        VSYNC_LOG_INFO("      " << pvv.first << ':' << pvv.second->getName());
+        VSYNC_LOG_DEBUG("      " << pvv.first << ':' << pvv.second->getName());
       }
-      VSYNC_LOG_INFO("         ]");
+      VSYNC_LOG_DEBUG("         ]");
     }
   }
 }

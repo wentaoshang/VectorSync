@@ -3,7 +3,7 @@
 #ifndef NDN_VSYNC_LOGGING_HPP_
 #define NDN_VSYNC_LOGGING_HPP_
 
-#ifdef ENABLE_NS3_LOGGING
+#ifdef NS3_LOG_ENABLE
 
 #include "ns3/log.h"
 
