@@ -61,6 +61,10 @@ class Node {
 
   const NodeID& GetNodeID() const { return id_; }
 
+  ViewID GetCurrentViewID() const { return view_id_; }
+
+  VersionVector GetCurrentVectorClock() const { return vector_clock_; }
+
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
   VersionVector PublishData(const std::string& content,
