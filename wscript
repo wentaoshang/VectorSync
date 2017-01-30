@@ -35,10 +35,15 @@ def build(bld):
               export_includes = 'lib',
               cxxflags = '-DBOOST_LOG_DYN_LINK -Wno-deprecated-declarations')
 
+    bld.install_files('${PREFIX}/include/VectorSync',
+                      bld.path.ant_glob(['lib/*.hpp']) + bld.path.ant_glob(['build/lib/*.pb.h']))
+    bld.install_files('${PREFIX}/lib', 'build/libvsync.a')
+
     bld.program(target = 'vsync-test',
                 name = 'vsync-test',
                 source = bld.path.ant_glob(['tests/*.cpp']),
                 includes = 'tests',
+                install_path = None,
                 use = 'NDN_CXX BOOST vsync',
                 cxxflags = '-DBOOST_TEST_DYN_LINK -Wno-deprecated-declarations')
 
@@ -46,6 +51,7 @@ def build(bld):
                 name = 'simple',
                 source = 'examples/simple.cpp',
                 includes = 'examples',
+                install_path = None,
                 use = 'NDN_CXX BOOST vsync',
                 cxxflags = '-Wno-deprecated-declarations')
 
@@ -53,5 +59,6 @@ def build(bld):
                 name = 'kv-store',
                 source = 'examples/kv-store.cpp',
                 includes = 'examples',
+                install_path = None,
                 use = 'NDN_CXX BOOST vsync',
                 cxxflags = '-Wno-deprecated-declarations')
