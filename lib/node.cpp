@@ -8,6 +8,8 @@
 #include "node.hpp"
 #include "vsync-helper.hpp"
 
+VSYNC_LOG_DEFINE(ndn.vsync.Node);
+
 namespace ndn {
 namespace vsync {
 

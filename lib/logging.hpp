@@ -7,7 +7,7 @@
 
 #include "ns3/log.h"
 
-NS_LOG_COMPONENT_DEFINE("ndn.vsync.Node");
+#define VSYNC_LOG_DEFINE(name) NS_LOG_COMPONENT_DEFINE(#name)
 
 #define VSYNC_LOG_TRACE(expr) NS_LOG_LOGIC(expr)
 #define VSYNC_LOG_INFO(expr) NS_LOG_INFO(expr)
@@ -19,7 +19,7 @@ NS_LOG_COMPONENT_DEFINE("ndn.vsync.Node");
 
 #include <ndn-cxx/util/logger.hpp>
 
-NDN_LOG_INIT(ndn.vsync.Node);
+#define VSYNC_LOG_DEFINE(name) NDN_LOG_INIT(name)
 
 #define VSYNC_LOG_TRACE(expr) NDN_LOG_TRACE(expr)
 #define VSYNC_LOG_INFO(expr) NDN_LOG_INFO(expr)
