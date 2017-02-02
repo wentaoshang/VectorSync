@@ -28,6 +28,7 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       heartbeat_event_(scheduler_),
       healthcheck_event_(scheduler_),
       leader_election_event_(scheduler_) {
+  this->view_id_change_signal_(view_id_);
   ResetState();
   if (is_leader_) PublishViewInfo();
 
@@ -69,6 +70,8 @@ void Node::ResetState() {
     vector_clock_[i] = rw.UpperBound();
     graph.insert({nid, {}});
   }
+
+  this->vector_clock_change_signal_(vector_clock_);
 }
 
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
@@ -82,6 +85,7 @@ bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
 
   idx_ = p.first;
   view_id_ = vid;
+  this->view_id_change_signal_(view_id_);
   view_info_ = vinfo;
   ResetState();
   if (is_leader_) PublishViewInfo();
@@ -149,6 +153,7 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
       return;
 
     ++view_id_.first;
+    this->view_id_change_signal_(view_id_);
     VSYNC_LOG_INFO("Move to new view: vid=" << view_id_
                                             << ", vinfo=" << view_info_);
     ResetState();
@@ -173,6 +178,8 @@ void Node::PublishViewInfo() {
 
 VersionVector Node::PublishData(const std::string& content, uint32_t type) {
   uint64_t seq = ++vector_clock_[idx_];
+  this->vector_clock_change_signal_(vector_clock_);
+
   recv_window_[id_].Insert(seq);
 
   auto n = MakeDataName(prefix_, id_, seq);
@@ -370,6 +377,7 @@ void Node::ProcessVector(const Data& data) {
   // Process version vector
   VersionVector old_vv = vector_clock_;
   vector_clock_ = Merge(old_vv, vv);
+  this->vector_clock_change_signal_(vector_clock_);
 
   VSYNC_LOG_INFO("Update: view_id=" << view_id_
                                     << ", vector_clock=" << vector_clock_);
@@ -522,6 +530,7 @@ void Node::DoHealthcheck() {
     if (dead_nodes.size() >= kViewChangeThreshold) {
       view_info_.Remove(dead_nodes);
       ++view_id_.first;
+      this->view_id_change_signal_(view_id_);
       ResetState();
       PublishViewInfo();
       VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_
@@ -550,6 +559,7 @@ void Node::ProcessLeaderElectionTimeout() {
   view_info_.Remove({view_id_.second});
   // Set self as leader for the new view
   view_id_ = {view_id_.first + 1, id_};
+  this->view_id_change_signal_(view_id_);
   ResetState();
   PublishViewInfo();
   VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_

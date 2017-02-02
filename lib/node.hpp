@@ -24,6 +24,9 @@ class Node {
   using DataCb = std::function<void(const std::string&, const ViewID&,
                                     const VersionVector&)>;
 
+  using VectorClockChangeCb = util::Signal<Node, const VersionVector&>::Handler;
+  using ViewIDChangeCb = util::Signal<Node, const ViewID&>::Handler;
+
   enum DataType : uint32_t {
     kUserData = 0,
     kLastDataInfo = 9666,
@@ -61,9 +64,7 @@ class Node {
 
   const NodeID& GetNodeID() const { return id_; }
 
-  ViewID GetCurrentViewID() const { return view_id_; }
-
-  VersionVector GetCurrentVectorClock() const { return vector_clock_; }
+  NodeIndex GetNodeIndex() const { return idx_; }
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
@@ -71,6 +72,14 @@ class Node {
                             uint32_t type = kUserData);
 
   void PrintCausalityGraph() const;
+
+  void ConnectVectorClockChangeSignal(VectorClockChangeCb cb) {
+    this->vector_clock_change_signal_.connect(cb);
+  }
+
+  void ConnectViewIDChangeSignal(ViewIDChangeCb cb) {
+    this->view_id_change_signal_.connect(cb);
+  }
 
  private:
   using VVQueue =
@@ -145,6 +154,9 @@ class Node {
   util::scheduler::ScopedEventId healthcheck_event_;
   util::scheduler::ScopedEventId leader_election_event_;
   std::vector<time::steady_clock::TimePoint> last_heartbeat_;
+
+  util::Signal<Node, const ViewID&> view_id_change_signal_;
+  util::Signal<Node, const VersionVector&> vector_clock_change_signal_;
 };
 
 }  // namespace vsync
