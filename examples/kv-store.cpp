@@ -32,7 +32,7 @@ class KeyValueStore {
       : face_(io_service_),
         scheduler_(io_service_),
         node_(face_, scheduler_, key_chain_, nid, prefix,
-              std::bind(&KeyValueStore::OnData, this, _1, _2, _3)),
+              std::bind(&KeyValueStore::OnData, this, _1, _2, _3, _4)),
         rengine_(rdevice_()),
         rdist_(2000, 5000) {}
 
@@ -54,7 +54,9 @@ class KeyValueStore {
   }
 
   void Put(const std::string& key, const std::string& value) {
-    auto vv = node_.PublishData(key + ':' + value);
+    VersionVector vv;
+    std::tie(std::ignore, std::ignore, vv) =
+        node_.PublishData(key + ':' + value);
     kvs_[key].insert({value, vv});
     std::cout << "Put " << key << ':' << value << ",vv=" << vv << std::endl;
   }
@@ -83,8 +85,10 @@ class KeyValueStore {
   }
 
  private:
-  void OnData(const std::string& content, const ViewID& vi,
-              const VersionVector& vv) {
+  void OnData(std::shared_ptr<const Data> data, const std::string& content,
+              const ViewID& vi, const VersionVector& vv) {
+    std::cout << "Upcall OnData: name=" << data->getName() << std::endl;
+
     auto sep = content.find_first_of(':');
     if (sep == std::string::npos) {
       std::cout << "Cannot parse key:value pair: " << content << std::endl;

@@ -9,6 +9,7 @@
 #include <memory>
 #include <random>
 #include <set>
+#include <tuple>
 #include <unordered_map>
 
 #include "ndn-common.hpp"
@@ -21,8 +22,9 @@ namespace vsync {
 
 class Node {
  public:
-  using DataCb = std::function<void(const std::string&, const ViewID&,
-                                    const VersionVector&)>;
+  using DataCb =
+      std::function<void(std::shared_ptr<const Data>, const std::string&,
+                         const ViewID&, const VersionVector&)>;
 
   using VectorClockChangeCb = util::Signal<Node, const VersionVector&>::Handler;
   using ViewIDChangeCb = util::Signal<Node, const ViewID&>::Handler;
@@ -68,8 +70,8 @@ class Node {
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
-  VersionVector PublishData(const std::string& content,
-                            uint32_t type = kUserData);
+  std::tuple<std::shared_ptr<const Data>, ViewID, VersionVector> PublishData(
+      const std::string& content, uint32_t type = kUserData);
 
   void PrintCausalityGraph() const;
 

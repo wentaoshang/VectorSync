@@ -16,7 +16,7 @@ class SimpleNode {
       : face_(io_service_),
         scheduler_(io_service_),
         node_(face_, scheduler_, key_chain_, nid, prefix,
-              std::bind(&SimpleNode::OnData, this, _1, _2, _3)),
+              std::bind(&SimpleNode::OnData, this, _1, _2, _3, _4)),
         rengine_(rdevice_()),
         rdist_(500, 10000) {}
 
@@ -27,10 +27,10 @@ class SimpleNode {
   }
 
  private:
-  void OnData(const std::string& content, const ViewID& vi,
-              const VersionVector& vv) {
-    std::cout << "Upcall OnData: content=\"" << content << "\", vi=" << vi
-              << ", vv=" << vv << std::endl;
+  void OnData(std::shared_ptr<const Data> data, const std::string& content,
+              const ViewID& vi, const VersionVector& vv) {
+    std::cout << "Upcall OnData: name=" << data->getName() << ", content=\""
+              << content << "\", vi=" << vi << ", vv=" << vv << std::endl;
   }
 
   void PublishData() {

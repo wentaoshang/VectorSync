@@ -176,7 +176,8 @@ void Node::PublishViewInfo() {
   data_store_[n] = d;
 }
 
-VersionVector Node::PublishData(const std::string& content, uint32_t type) {
+std::tuple<std::shared_ptr<const Data>, ViewID, VersionVector>
+Node::PublishData(const std::string& content, uint32_t type) {
   uint64_t seq = ++vector_clock_[idx_];
   this->vector_clock_change_signal_(vector_clock_);
 
@@ -211,7 +212,7 @@ VersionVector Node::PublishData(const std::string& content, uint32_t type) {
 
   SendSyncInterest();
 
-  return vv;
+  return {data, view_id_, vv};
 }
 
 void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
@@ -432,7 +433,8 @@ void Node::OnRemoteData(const Data& data) {
       auto& queue = causality_graph_[vi][nid];
       queue.insert({vv, data.shared_from_this()});
       // PrintCausalityGraph();
-      if (data_cb_) data_cb_(content_proto.user_data(), vi, vv);
+      if (data_cb_)
+        data_cb_(data.shared_from_this(), content_proto.user_data(), vi, vv);
     }
   } else {
     VSYNC_LOG_WARN("Invalid content format: d.name=" << n);
