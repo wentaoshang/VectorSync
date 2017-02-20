@@ -28,7 +28,7 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       heartbeat_event_(scheduler_),
       healthcheck_event_(scheduler_),
       leader_election_event_(scheduler_) {
-  this->view_id_change_signal_(view_id_);
+  this->view_change_signal_(view_id_, view_info_);
   ResetState();
   if (is_leader_) PublishViewInfo();
 
@@ -85,8 +85,8 @@ bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
 
   idx_ = p.first;
   view_id_ = vid;
-  this->view_id_change_signal_(view_id_);
   view_info_ = vinfo;
+  this->view_change_signal_(view_id_, view_info_);
   ResetState();
   if (is_leader_) PublishViewInfo();
   PublishHeartbeat();
@@ -153,7 +153,7 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
       return;
 
     ++view_id_.first;
-    this->view_id_change_signal_(view_id_);
+    this->view_change_signal_(view_id_, view_info_);
     VSYNC_LOG_INFO("Move to new view: vid=" << view_id_
                                             << ", vinfo=" << view_info_);
     ResetState();
@@ -532,7 +532,7 @@ void Node::DoHealthcheck() {
     if (dead_nodes.size() >= kViewChangeThreshold) {
       view_info_.Remove(dead_nodes);
       ++view_id_.first;
-      this->view_id_change_signal_(view_id_);
+      this->view_change_signal_(view_id_, view_info_);
       ResetState();
       PublishViewInfo();
       VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_
@@ -561,7 +561,7 @@ void Node::ProcessLeaderElectionTimeout() {
   view_info_.Remove({view_id_.second});
   // Set self as leader for the new view
   view_id_ = {view_id_.first + 1, id_};
-  this->view_id_change_signal_(view_id_);
+  this->view_change_signal_(view_id_, view_info_);
   ResetState();
   PublishViewInfo();
   VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_

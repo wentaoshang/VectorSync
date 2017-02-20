@@ -28,7 +28,8 @@ class Node {
 
   using VectorClockChangeCb =
       util::Signal<Node, std::size_t, const VersionVector&>::Handler;
-  using ViewIDChangeCb = util::Signal<Node, const ViewID&>::Handler;
+  using ViewChangeCb =
+      util::Signal<Node, const ViewID&, const ViewInfo&>::Handler;
 
   enum DataType : uint32_t {
     kUserData = 0,
@@ -80,8 +81,8 @@ class Node {
     this->vector_clock_change_signal_.connect(cb);
   }
 
-  void ConnectViewIDChangeSignal(ViewIDChangeCb cb) {
-    this->view_id_change_signal_.connect(cb);
+  void ConnectViewChangeSignal(ViewChangeCb cb) {
+    this->view_change_signal_.connect(cb);
   }
 
  private:
@@ -158,7 +159,7 @@ class Node {
   util::scheduler::ScopedEventId leader_election_event_;
   std::vector<time::steady_clock::TimePoint> last_heartbeat_;
 
-  util::Signal<Node, const ViewID&> view_id_change_signal_;
+  util::Signal<Node, const ViewID&, const ViewInfo&> view_change_signal_;
   util::Signal<Node, std::size_t, const VersionVector&>
       vector_clock_change_signal_;
 };
