@@ -71,7 +71,7 @@ void Node::ResetState() {
     graph.insert({nid, {}});
   }
 
-  this->vector_clock_change_signal_(vector_clock_);
+  this->vector_clock_change_signal_(idx_, vector_clock_);
 }
 
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
@@ -179,7 +179,7 @@ void Node::PublishViewInfo() {
 std::tuple<std::shared_ptr<const Data>, ViewID, VersionVector>
 Node::PublishData(const std::string& content, uint32_t type) {
   uint64_t seq = ++vector_clock_[idx_];
-  this->vector_clock_change_signal_(vector_clock_);
+  this->vector_clock_change_signal_(idx_, vector_clock_);
 
   recv_window_[id_].Insert(seq);
 
@@ -378,7 +378,7 @@ void Node::ProcessVector(const Data& data) {
   // Process version vector
   VersionVector old_vv = vector_clock_;
   vector_clock_ = Merge(old_vv, vv);
-  this->vector_clock_change_signal_(vector_clock_);
+  this->vector_clock_change_signal_(idx_, vector_clock_);
 
   VSYNC_LOG_INFO("Update: view_id=" << view_id_
                                     << ", vector_clock=" << vector_clock_);

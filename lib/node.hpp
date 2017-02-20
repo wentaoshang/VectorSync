@@ -26,7 +26,8 @@ class Node {
       std::function<void(std::shared_ptr<const Data>, const std::string&,
                          const ViewID&, const VersionVector&)>;
 
-  using VectorClockChangeCb = util::Signal<Node, const VersionVector&>::Handler;
+  using VectorClockChangeCb =
+      util::Signal<Node, std::size_t, const VersionVector&>::Handler;
   using ViewIDChangeCb = util::Signal<Node, const ViewID&>::Handler;
 
   enum DataType : uint32_t {
@@ -158,7 +159,8 @@ class Node {
   std::vector<time::steady_clock::TimePoint> last_heartbeat_;
 
   util::Signal<Node, const ViewID&> view_id_change_signal_;
-  util::Signal<Node, const VersionVector&> vector_clock_change_signal_;
+  util::Signal<Node, std::size_t, const VersionVector&>
+      vector_clock_change_signal_;
 };
 
 }  // namespace vsync
