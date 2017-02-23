@@ -14,7 +14,8 @@ namespace ndn {
 namespace vsync {
 
 Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-           const NodeID& nid, const Name& prefix, Node::DataCb on_data)
+           const NodeID& nid, const Name& prefix, Node::DataCb on_data,
+           uint32_t seed)
     : face_(face),
       scheduler_(scheduler),
       key_chain_(key_chain),
@@ -23,8 +24,10 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       view_id_({1, nid}),
       view_info_({{nid, prefix}}),
       data_cb_(std::move(on_data)),
-      rengine_(rdevice_()),
-      rdist_(100, time::milliseconds(kLeaderElectionTimeoutMax).count()),
+      rengine_(seed),
+      heartbeat_random_delay_(10, 100),
+      leader_election_random_delay_(
+          100, time::milliseconds(kLeaderElectionTimeoutMax).count()),
       heartbeat_event_(scheduler_),
       healthcheck_event_(scheduler_),
       leader_election_event_(scheduler_) {
@@ -44,8 +47,10 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
         throw Error("Failed to register data prefix: " + reason);
       });
 
-  heartbeat_event_ = scheduler_.scheduleEvent(kHeartbeatInterval,
-                                              [this] { PublishHeartbeat(); });
+  heartbeat_event_ = scheduler_.scheduleEvent(
+      kHeartbeatInterval +
+          time::milliseconds(heartbeat_random_delay_(rengine_)),
+      [this] { PublishHeartbeat(); });
 
   healthcheck_event_ = scheduler_.scheduleEvent(kHealthcheckInterval,
                                                 [this] { DoHealthcheck(); });
@@ -486,8 +491,10 @@ VersionVector Node::GenerateDataVV() const {
 
 void Node::PublishHeartbeat() {
   // Schedule next heartbeat event before publishing heartbeat message
-  heartbeat_event_ = scheduler_.scheduleEvent(kHeartbeatInterval,
-                                              [this] { PublishHeartbeat(); });
+  heartbeat_event_ = scheduler_.scheduleEvent(
+      kHeartbeatInterval +
+          time::milliseconds(heartbeat_random_delay_(rengine_)),
+      [this] { PublishHeartbeat(); });
 
   PublishData("Heartbeat", kHeartbeat);
 }
@@ -548,9 +555,9 @@ void Node::DoHealthcheck() {
     if (last_heartbeat_[p.first] + kHeartbeatTimeout < now) {
       VSYNC_LOG_INFO("Found dead leader: " << leader_id);
       // Start leader election timer
-      leader_election_event_ =
-          scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
-                                   [this] { ProcessLeaderElectionTimeout(); });
+      leader_election_event_ = scheduler_.scheduleEvent(
+          time::milliseconds(leader_election_random_delay_(rengine_)),
+          [this] { ProcessLeaderElectionTimeout(); });
     }
   }
 }

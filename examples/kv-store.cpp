@@ -28,12 +28,12 @@ class KeyValueStore {
 
   using ValueQueue = std::set<Value, ValueCompare>;
 
-  KeyValueStore(const NodeID& nid, const Name& prefix)
+  KeyValueStore(const NodeID& nid, const Name& prefix, uint32_t seed)
       : face_(io_service_),
         scheduler_(io_service_),
         node_(face_, scheduler_, key_chain_, nid, prefix,
-              std::bind(&KeyValueStore::OnData, this, _1, _2, _3, _4)),
-        rengine_(rdevice_()),
+              std::bind(&KeyValueStore::OnData, this, _1, _2, _3, _4), seed),
+        rengine_(seed),
         rdist_(2000, 5000) {}
 
   void Start() { face_.processEvents(); }
@@ -110,7 +110,6 @@ class KeyValueStore {
 
   std::unordered_map<std::string, ValueQueue> kvs_;
 
-  std::random_device rdevice_;
   std::mt19937 rengine_;
   std::uniform_int_distribution<> rdist_;
 };
@@ -126,7 +125,9 @@ int main(int argc, char* argv[]) {
   NodeID nid = argv[1];
   Name prefix(argv[2]);
 
-  KeyValueStore kv_store(nid, prefix);
+  std::random_device rdevice;
+
+  KeyValueStore kv_store(nid, prefix, static_cast<uint32_t>(rdevice()));
   kv_store.PrepareTestRun();
   kv_store.Start();
   return 0;

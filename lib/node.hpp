@@ -62,9 +62,10 @@ class Node {
    * @param nid        Unique node ID
    * @param prefix     Data prefix of the node
    * @param on_data    Callback for notifying new data to the application
+   * @param seed       Value to seed the PRNG engine
    */
   Node(Face& face, Scheduler& scheduler, KeyChain& key_chain, const NodeID& nid,
-       const Name& prefix, DataCb on_data);
+       const Name& prefix, DataCb on_data, uint32_t seed);
 
   const NodeID& GetNodeID() const { return id_; }
 
@@ -150,9 +151,9 @@ class Node {
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;
   DataCb data_cb_;
 
-  std::random_device rdevice_;
   std::mt19937 rengine_;
-  std::uniform_int_distribution<> rdist_;
+  std::uniform_int_distribution<> heartbeat_random_delay_;
+  std::uniform_int_distribution<> leader_election_random_delay_;
 
   util::scheduler::ScopedEventId heartbeat_event_;
   util::scheduler::ScopedEventId healthcheck_event_;

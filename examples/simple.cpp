@@ -12,12 +12,12 @@ namespace examples {
 
 class SimpleNode {
  public:
-  SimpleNode(const NodeID& nid, const Name& prefix)
+  SimpleNode(const NodeID& nid, const Name& prefix, uint32_t seed)
       : face_(io_service_),
         scheduler_(io_service_),
         node_(face_, scheduler_, key_chain_, nid, prefix,
-              std::bind(&SimpleNode::OnData, this, _1, _2, _3, _4)),
-        rengine_(rdevice_()),
+              std::bind(&SimpleNode::OnData, this, _1, _2, _3, _4), seed),
+        rengine_(seed),
         rdist_(500, 10000) {}
 
   void Start() {
@@ -45,7 +45,6 @@ class SimpleNode {
   KeyChain key_chain_;
   Node node_;
 
-  std::random_device rdevice_;
   std::mt19937 rengine_;
   std::uniform_int_distribution<> rdist_;
 };
@@ -61,7 +60,9 @@ int main(int argc, char* argv[]) {
   NodeID nid = argv[1];
   Name prefix(argv[2]);
 
-  SimpleNode node(nid, prefix);
+  std::random_device rdevice;
+
+  SimpleNode node(nid, prefix, static_cast<uint32_t>(rdevice()));
   node.Start();
   return 0;
 }
