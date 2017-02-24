@@ -34,6 +34,8 @@ static constexpr time::milliseconds kSyncInterestLifetime =
     time::milliseconds(100);
 static constexpr time::milliseconds kVectorInterestLifetime =
     time::milliseconds(100);
+static constexpr time::milliseconds kViewInfoInterestLifetime =
+    time::milliseconds(100);
 static constexpr time::milliseconds kDataInterestLifetime =
     time::milliseconds(100);
 static constexpr time::seconds kHeartbeatInterval = time::seconds(4);

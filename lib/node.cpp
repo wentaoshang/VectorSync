@@ -111,11 +111,11 @@ void Node::DoViewChange(const ViewID& vid) {
     // Suppress this interest if this view info has been received before
     if (data_store_.find(n) != data_store_.end()) return;
 
-    Interest i(n, time::seconds(4));
+    Interest i(n, kViewInfoInterestLifetime);
     VSYNC_LOG_TRACE("Send: i.name=" << n);
     face_.expressInterest(i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
                           [](const Interest&, const lp::Nack&) {},
-                          [](const Interest&) {});
+                          std::bind(&Node::OnInterestTimeout, this, _1, 0));
   }
 }
 
