@@ -426,6 +426,13 @@ void Node::OnRemoteData(const Data& data) {
     return;
   }
 
+  if (data_store_.find(n) != data_store_.end()) {
+    // A node may receive duplicate data if it sends multiple Interests for the
+    // same data. NDN-CXX will not merge the duplicate pending Interests.
+    VSYNC_LOG_WARN("Duplicate data received: d.name=" << n);
+    return;
+  }
+
   const auto& content = data.getContent();
   proto::Content content_proto;
   if (content_proto.ParseFromArray(content.value(), content.value_size())) {
