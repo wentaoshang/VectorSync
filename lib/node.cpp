@@ -25,7 +25,8 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       view_info_({{nid, prefix}}),
       data_cb_(std::move(on_data)),
       rengine_(seed),
-      heartbeat_random_delay_(10, 100),
+      heartbeat_random_delay_(10,
+                              time::milliseconds(kHeartbeatMaxDelay).count()),
       leader_election_random_delay_(
           100, time::milliseconds(kLeaderElectionTimeoutMax).count()),
       heartbeat_event_(scheduler_),
@@ -223,12 +224,11 @@ Node::PublishData(const std::string& content, uint32_t type) {
 void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
                             uint64_t seq) {
   auto in = MakeDataName(prefix, nid, seq);
-  Interest inst(in, time::milliseconds(1000));
+  Interest inst(in, kDataInterestLifetime);
   VSYNC_LOG_TRACE("Send: i.name=" << in);
   face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
                         [](const Interest&, const lp::Nack&) {},
-                        [](const Interest&) {});
-  // TODO: retransmit interest upon timeout
+                        std::bind(&Node::OnInterestTimeout, this, _1, 0));
 }
 
 void Node::OnDataInterest(const Interest& interest) {
@@ -255,10 +255,21 @@ void Node::SendSyncInterest() {
   PublishVector(n, digest);
 
   VSYNC_LOG_TRACE("Send: i.name=" << n);
-  Interest i(n, time::milliseconds(1000));
+  Interest i(n, kSyncInterestLifetime);
   face_.expressInterest(i, [](const Interest&, const Data&) {},
                         [](const Interest&, const lp::Nack&) {},
-                        [](const Interest&) {});
+                        std::bind(&Node::OnInterestTimeout, this, _1, 0));
+}
+
+void Node::OnInterestTimeout(const Interest& interest, int retry_count) {
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  if (retry_count > kInterestMaxRetrans) return;
+  VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
+  // TBD: increase interest lifetime exponentially?
+  face_.expressInterest(
+      interest, [](const Interest&, const Data&) {},
+      [](const Interest&, const lp::Nack&) {},
+      std::bind(&Node::OnInterestTimeout, this, _1, retry_count + 1));
 }
 
 void Node::SendSyncReply(const Name& n) {
@@ -294,8 +305,7 @@ void Node::OnSyncInterest(const Interest& interest) {
       face_.put(*iter->second);
     }
   } else if (dispatcher == "digest") {
-    // Generate sync reply to purge pending sync Interest
-    // TBD: should we leave vectorsync interest in the PIT?
+    // Generate sync reply to notify receipt of sync interest
     SendSyncReply(n);
 
     // Check view id
@@ -322,10 +332,10 @@ void Node::SendVectorInterest(const Name& sync_interest_name) {
   if (data_store_.find(n) != data_store_.end()) return;
 
   VSYNC_LOG_TRACE("Send: i.name=" << n);
-  Interest i(n, time::milliseconds(1000));
+  Interest i(n, kVectorInterestLifetime);
   face_.expressInterest(i, std::bind(&Node::ProcessVector, this, _2),
                         [](const Interest&, const lp::Nack&) {},
-                        [](const Interest&) {});
+                        std::bind(&Node::OnInterestTimeout, this, _1, 0));
 }
 
 void Node::PublishVector(const Name& sync_interest_name,
