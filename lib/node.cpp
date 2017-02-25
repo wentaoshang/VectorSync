@@ -14,8 +14,7 @@ namespace ndn {
 namespace vsync {
 
 Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-           const NodeID& nid, const Name& prefix, Node::DataCb on_data,
-           uint32_t seed)
+           const NodeID& nid, const Name& prefix, uint32_t seed)
     : face_(face),
       scheduler_(scheduler),
       key_chain_(key_chain),
@@ -23,7 +22,6 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       prefix_(prefix),
       view_id_({1, nid}),
       view_info_({{nid, prefix}}),
-      data_cb_(std::move(on_data)),
       rengine_(seed),
       heartbeat_random_delay_(10,
                               time::milliseconds(kHeartbeatMaxDelay).count()),
@@ -32,8 +30,8 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       heartbeat_event_(scheduler_),
       healthcheck_event_(scheduler_),
       leader_election_event_(scheduler_) {
-  this->view_change_signal_(view_id_, view_info_);
   ResetState();
+
   if (is_leader_) PublishViewInfo();
 
   face_.setInterestFilter(
@@ -60,6 +58,7 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
 void Node::ResetState() {
   idx_ = view_info_.GetIndexByID(id_).first;
   is_leader_ = view_id_.second == id_;
+  view_change_signal_(view_id_, view_info_, is_leader_);
 
   vector_clock_.clear();
   vector_clock_.resize(view_info_.Size());
@@ -77,7 +76,7 @@ void Node::ResetState() {
     graph.insert({nid, {}});
   }
 
-  this->vector_clock_change_signal_(idx_, vector_clock_);
+  vector_clock_change_signal_(idx_, vector_clock_);
 }
 
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
@@ -92,7 +91,6 @@ bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
   idx_ = p.first;
   view_id_ = vid;
   view_info_ = vinfo;
-  this->view_change_signal_(view_id_, view_info_);
   ResetState();
   if (is_leader_) PublishViewInfo();
   PublishHeartbeat();
@@ -159,7 +157,6 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
       return;
 
     ++view_id_.first;
-    this->view_change_signal_(view_id_, view_info_);
     VSYNC_LOG_INFO("Move to new view: vid=" << view_id_
                                             << ", vinfo=" << view_info_);
     ResetState();
@@ -185,7 +182,7 @@ void Node::PublishViewInfo() {
 std::tuple<std::shared_ptr<const Data>, ViewID, VersionVector>
 Node::PublishData(const std::string& content, uint32_t type) {
   uint64_t seq = ++vector_clock_[idx_];
-  this->vector_clock_change_signal_(idx_, vector_clock_);
+  vector_clock_change_signal_(idx_, vector_clock_);
 
   recv_window_[id_].Insert(seq);
 
@@ -393,7 +390,7 @@ void Node::ProcessVector(const Data& data) {
   // Process version vector
   VersionVector old_vv = vector_clock_;
   vector_clock_ = Merge(old_vv, vv);
-  this->vector_clock_change_signal_(idx_, vector_clock_);
+  vector_clock_change_signal_(idx_, vector_clock_);
 
   VSYNC_LOG_INFO("Update: view_id=" << view_id_
                                     << ", vector_clock=" << vector_clock_);
@@ -455,8 +452,7 @@ void Node::OnRemoteData(const Data& data) {
       auto& queue = causality_graph_[vi][nid];
       queue.insert({vv, data.shared_from_this()});
       // PrintCausalityGraph();
-      if (data_cb_)
-        data_cb_(data.shared_from_this(), content_proto.user_data(), vi, vv);
+      data_signal_(data.shared_from_this(), content_proto.user_data(), vi, vv);
     }
   } else {
     VSYNC_LOG_WARN("Invalid content format: d.name=" << n);
@@ -556,7 +552,6 @@ void Node::DoHealthcheck() {
     if (dead_nodes.size() >= kViewChangeThreshold) {
       view_info_.Remove(dead_nodes);
       ++view_id_.first;
-      this->view_change_signal_(view_id_, view_info_);
       ResetState();
       PublishViewInfo();
       VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_
@@ -585,7 +580,6 @@ void Node::ProcessLeaderElectionTimeout() {
   view_info_.Remove({view_id_.second});
   // Set self as leader for the new view
   view_id_ = {view_id_.first + 1, id_};
-  this->view_change_signal_(view_id_, view_info_);
   ResetState();
   PublishViewInfo();
   VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_

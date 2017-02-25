@@ -22,14 +22,17 @@ namespace vsync {
 
 class Node {
  public:
-  using DataCb =
-      std::function<void(std::shared_ptr<const Data>, const std::string&,
-                         const ViewID&, const VersionVector&)>;
+  using DataSignal =
+      util::Signal<Node, std::shared_ptr<const Data>, const std::string&,
+                   const ViewID&, const VersionVector&>;
+  using DataCb = DataSignal::Handler;
 
-  using VectorClockChangeCb =
-      util::Signal<Node, std::size_t, const VersionVector&>::Handler;
-  using ViewChangeCb =
-      util::Signal<Node, const ViewID&, const ViewInfo&>::Handler;
+  using VectorClockSignal =
+      util::Signal<Node, std::size_t, const VersionVector&>;
+  using VectorClockChangeCb = VectorClockSignal::Handler;
+  using ViewChangeSignal =
+      util::Signal<Node, const ViewID&, const ViewInfo&, bool>;
+  using ViewChangeCb = ViewChangeSignal::Handler;
 
   enum DataType : uint32_t {
     kUserData = 0,
@@ -61,11 +64,10 @@ class Node {
    * @param key_chain  Reference to the KeyChain object used by the application
    * @param nid        Unique node ID
    * @param prefix     Data prefix of the node
-   * @param on_data    Callback for notifying new data to the application
    * @param seed       Value to seed the PRNG engine
    */
   Node(Face& face, Scheduler& scheduler, KeyChain& key_chain, const NodeID& nid,
-       const Name& prefix, DataCb on_data, uint32_t seed);
+       const Name& prefix, uint32_t seed);
 
   const NodeID& GetNodeID() const { return id_; }
 
@@ -77,6 +79,8 @@ class Node {
       const std::string& content, uint32_t type = kUserData);
 
   void PrintCausalityGraph() const;
+
+  void ConnectDataSignal(DataCb cb) { this->data_signal_.connect(cb); }
 
   void ConnectVectorClockChangeSignal(VectorClockChangeCb cb) {
     this->vector_clock_change_signal_.connect(cb);
@@ -150,7 +154,7 @@ class Node {
   std::map<ViewID, std::unordered_map<NodeID, VVQueue>> causality_graph_;
 
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;
-  DataCb data_cb_;
+  DataSignal data_signal_;
 
   std::mt19937 rengine_;
   std::uniform_int_distribution<> heartbeat_random_delay_;
@@ -161,9 +165,8 @@ class Node {
   util::scheduler::ScopedEventId leader_election_event_;
   std::vector<time::steady_clock::TimePoint> last_heartbeat_;
 
-  util::Signal<Node, const ViewID&, const ViewInfo&> view_change_signal_;
-  util::Signal<Node, std::size_t, const VersionVector&>
-      vector_clock_change_signal_;
+  ViewChangeSignal view_change_signal_;
+  VectorClockSignal vector_clock_change_signal_;
 };
 
 }  // namespace vsync

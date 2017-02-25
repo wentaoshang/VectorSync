@@ -31,10 +31,12 @@ class KeyValueStore {
   KeyValueStore(const NodeID& nid, const Name& prefix, uint32_t seed)
       : face_(io_service_),
         scheduler_(io_service_),
-        node_(face_, scheduler_, key_chain_, nid, prefix,
-              std::bind(&KeyValueStore::OnData, this, _1, _2, _3, _4), seed),
+        node_(face_, scheduler_, key_chain_, nid, prefix, seed),
         rengine_(seed),
-        rdist_(2000, 5000) {}
+        rdist_(2000, 5000) {
+    node_.ConnectDataSignal(
+        std::bind(&KeyValueStore::OnData, this, _1, _2, _3, _4));
+  }
 
   void Start() { face_.processEvents(); }
 
