@@ -249,7 +249,7 @@ void Node::SendSyncInterest() {
 
   auto n = MakeSyncInterestName(view_id_, digest);
 
-  PublishVector(n, digest);
+  PublishVector(n);
 
   VSYNC_LOG_TRACE("Send: i.name=" << n);
   Interest i(n, kSyncInterestLifetime);
@@ -335,8 +335,7 @@ void Node::SendVectorInterest(const Name& sync_interest_name) {
                         std::bind(&Node::OnInterestTimeout, this, _1, 0));
 }
 
-void Node::PublishVector(const Name& sync_interest_name,
-                         const std::string& digest) {
+void Node::PublishVector(const Name& sync_interest_name) {
   auto n = MakeVectorInterestName(sync_interest_name);
   VSYNC_LOG_TRACE("Publish: d.name=" << n
                                      << ", vector_clock=" << vector_clock_);

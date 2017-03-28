@@ -112,7 +112,7 @@ class Node {
   void OnRemoteData(const Data& data);
 
   void SendVectorInterest(const Name& sync_interest_name);
-  void PublishVector(const Name& sync_interest_name, const std::string& digest);
+  void PublishVector(const Name& sync_interest_name);
   void ProcessVector(const Data& data);
 
   /**
