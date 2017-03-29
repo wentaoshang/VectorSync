@@ -78,8 +78,6 @@ class Node {
   std::tuple<std::shared_ptr<const Data>, ViewID, VersionVector> PublishData(
       const std::string& content, uint32_t type = kUserData);
 
-  void PrintCausalityGraph() const;
-
   void ConnectDataSignal(DataCb cb) { this->data_signal_.connect(cb); }
 
   void ConnectVectorClockChangeSignal(VectorClockChangeCb cb) {
@@ -91,9 +89,6 @@ class Node {
   }
 
  private:
-  using VVQueue =
-      std::map<VersionVector, std::shared_ptr<const Data>, VVCompare>;
-
   Node(const Node&) = delete;
   Node& operator=(const Node&) = delete;
 
@@ -149,10 +144,7 @@ class Node {
   // Hash table mapping node ID to its receive window
   std::unordered_map<NodeID, ReceiveWindow> recv_window_;
 
-  // Ordered map mapping view id to a hash table that maps node id to its
-  // version vector queue
-  std::map<ViewID, std::unordered_map<NodeID, VVQueue>> causality_graph_;
-
+  // In-memory store for all data
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;
   DataSignal data_signal_;
 

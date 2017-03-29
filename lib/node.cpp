@@ -67,13 +67,11 @@ void Node::ResetState() {
   auto now = time::steady_clock::now();
   last_heartbeat_.resize(view_info_.Size(), now);
 
-  auto& graph = causality_graph_[view_id_];
-
+  // Preserve sequence numbers for the nodes that survived the view change
   for (std::size_t i = 0; i < view_info_.Size(); ++i) {
     auto nid = view_info_.GetIDByIndex(i).first;
     auto rw = recv_window_[nid];
     vector_clock_[i] = rw.UpperBound();
-    graph.insert({nid, {}});
   }
 
   vector_clock_change_signal_(idx_, vector_clock_);
@@ -206,9 +204,6 @@ Node::PublishData(const std::string& content, uint32_t type) {
   key_chain_.sign(*data, signingWithSha256());
 
   data_store_[n] = data;
-  auto& queue = causality_graph_[view_id_][id_];
-  queue.insert({vv, data});
-  // PrintCausalityGraph();
 
   VSYNC_LOG_TRACE("Publish: d.name=" << n << ", vid=" << view_id_
                                      << ", vv=" << vv);
@@ -448,9 +443,6 @@ void Node::OnRemoteData(const Data& data) {
       ProcessHeartbeat(vi, nid);
     } else if (content_type == kUserData) {
       auto vv = DecodeVV(content_proto.vv());
-      auto& queue = causality_graph_[vi][nid];
-      queue.insert({vv, data.shared_from_this()});
-      // PrintCausalityGraph();
       data_signal_(data.shared_from_this(), content_proto.user_data(), vi, vv);
     }
   } else {
@@ -584,22 +576,6 @@ void Node::ProcessLeaderElectionTimeout() {
   VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_
                                               << ", vinfo=" << view_info_);
   PublishHeartbeat();
-}
-
-void Node::PrintCausalityGraph() const {
-  VSYNC_LOG_DEBUG("CausalGraph:");
-  for (const auto& p : causality_graph_) {
-    VSYNC_LOG_DEBUG(" ViewID=(" << p.first.first << ',' << p.first.second
-                                << "):");
-    for (const auto& pvv_queue : p.second) {
-      VSYNC_LOG_DEBUG("  NodeID=" << pvv_queue.first << ':');
-      VSYNC_LOG_DEBUG("   Queue=[");
-      for (const auto& pvv : pvv_queue.second) {
-        VSYNC_LOG_DEBUG("      " << pvv.first << ':' << pvv.second->getName());
-      }
-      VSYNC_LOG_DEBUG("         ]");
-    }
-  }
 }
 
 }  // namespace vsync
