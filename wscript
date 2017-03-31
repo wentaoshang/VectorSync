@@ -54,9 +54,9 @@ def build(bld):
                 install_path = None,
                 use = 'NDN_CXX BOOST vsync')
 
-    bld.program(target = 'kv-store',
-                name = 'kv-store',
-                source = 'examples/kv-store.cpp',
-                includes = 'examples',
-                install_path = None,
-                use = 'NDN_CXX BOOST vsync')
+    # bld.program(target = 'kv-store',
+    #             name = 'kv-store',
+    #             source = 'examples/kv-store.cpp',
+    #             includes = 'examples',
+    #             install_path = None,
+    #             use = 'NDN_CXX BOOST vsync')

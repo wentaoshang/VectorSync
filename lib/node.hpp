@@ -22,11 +22,8 @@ namespace vsync {
 
 class Node {
  public:
-  using DataSignal =
-      util::Signal<Node, std::shared_ptr<const Data>, const std::string&,
-                   const ViewID&, const VersionVector&>;
+  using DataSignal = util::Signal<Node, std::shared_ptr<const Data>>;
   using DataCb = DataSignal::Handler;
-
   using VectorClockSignal =
       util::Signal<Node, std::size_t, const VersionVector&>;
   using VectorClockChangeCb = VectorClockSignal::Handler;
@@ -75,8 +72,8 @@ class Node {
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
-  std::tuple<std::shared_ptr<const Data>, ViewID, VersionVector> PublishData(
-      const std::string& content, uint32_t type = kUserData);
+  std::shared_ptr<const Data> PublishData(const std::string& content,
+                                          uint32_t type = kUserData);
 
   void ConnectDataSignal(DataCb cb) { this->data_signal_.connect(cb); }
 
@@ -100,7 +97,7 @@ class Node {
   void OnInterestTimeout(const Interest& interest, int retry_count);
   inline void SendSyncReply(const Name& n);
   inline void PublishHeartbeat();
-  inline void ProcessHeartbeat(const ViewID& vid, const NodeID& nid);
+  inline void ProcessHeartbeat(const Block& content, const NodeID& nid);
 
   void OnSyncInterest(const Interest& interest);
   void OnDataInterest(const Interest& interest);
@@ -120,7 +117,6 @@ class Node {
    * @param seq    Sequence number of @p data
    */
   void UpdateReceiveWindow(const Data& data, const NodeID& nid, uint64_t seq);
-  VersionVector GenerateDataVV() const;
 
   void DoViewChange(const ViewID& vid);
   void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);

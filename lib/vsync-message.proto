@@ -19,6 +19,12 @@ message ViewInfo {
   repeated Entry entry = 1;
 }
 
+// Vsync heartbeat content
+message Heartbeat {
+  uint64 view_num = 1;
+  string leader_id = 2;
+}
+
 // Vsync data content
 message Content {
   uint64 view_num = 1;

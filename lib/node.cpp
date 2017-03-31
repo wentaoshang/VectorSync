@@ -177,8 +177,8 @@ void Node::PublishViewInfo() {
   data_store_[n] = d;
 }
 
-std::tuple<std::shared_ptr<const Data>, ViewID, VersionVector>
-Node::PublishData(const std::string& content, uint32_t type) {
+std::shared_ptr<const Data> Node::PublishData(const std::string& content,
+                                              uint32_t type) {
   uint64_t seq = ++vector_clock_[idx_];
   vector_clock_change_signal_(idx_, vector_clock_);
 
@@ -187,30 +187,20 @@ Node::PublishData(const std::string& content, uint32_t type) {
   auto n = MakeDataName(prefix_, id_, seq);
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(time::seconds(3600));
-
-  // Add view id and version vector for user data
-  auto vv = GenerateDataVV();
-  proto::Content content_proto;
-  content_proto.set_view_num(view_id_.first);
-  content_proto.set_leader_id(view_id_.second);
-  auto* vv_proto = content_proto.mutable_vv();
-  EncodeVV(vv, vv_proto);
-
-  content_proto.set_user_data(content);
-  const std::string& content_proto_str = content_proto.SerializeAsString();
-  data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
-                   content_proto_str.size());
+  data->setContent(reinterpret_cast<const uint8_t*>(content.data()),
+                   content.size());
   data->setContentType(type);
   key_chain_.sign(*data, signingWithSha256());
 
   data_store_[n] = data;
 
-  VSYNC_LOG_TRACE("Publish: d.name=" << n << ", vid=" << view_id_
-                                     << ", vv=" << vv);
+  VSYNC_LOG_TRACE("Publish: d.name=" << n << ", content_type=" << type
+                                     << ", view_id=" << view_id_
+                                     << ", vector_clock=" << vector_clock_);
 
   SendSyncInterest();
 
-  return {data, view_id_, vv};
+  return data;
 }
 
 void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
@@ -424,29 +414,19 @@ void Node::OnRemoteData(const Data& data) {
     return;
   }
 
-  const auto& content = data.getContent();
-  proto::Content content_proto;
-  if (content_proto.ParseFromArray(content.value(), content.value_size())) {
-    ViewID vi = {content_proto.view_num(), content_proto.leader_id()};
-    VSYNC_LOG_TRACE("Recv: d.name=" << n << ", vid=" << vi);
+  auto nid = ExtractNodeID(n);
+  auto seq = ExtractSequenceNumber(n);
 
-    auto nid = ExtractNodeID(n);
-    auto seq = ExtractSequenceNumber(n);
+  UpdateReceiveWindow(data, nid, seq);
 
-    UpdateReceiveWindow(data, nid, seq);
+  // Store a local copy of received data
+  data_store_[n] = data.shared_from_this();
 
-    // Store a local copy of received data
-    data_store_[n] = data.shared_from_this();
-
-    auto content_type = data.getContentType();
-    if (content_type == kHeartbeat) {
-      ProcessHeartbeat(vi, nid);
-    } else if (content_type == kUserData) {
-      auto vv = DecodeVV(content_proto.vv());
-      data_signal_(data.shared_from_this(), content_proto.user_data(), vi, vv);
-    }
-  } else {
-    VSYNC_LOG_WARN("Invalid content format: d.name=" << n);
+  auto content_type = data.getContentType();
+  if (content_type == kHeartbeat) {
+    ProcessHeartbeat(data.getContent(), nid);
+  } else if (content_type == kUserData) {
+    data_signal_(data.shared_from_this());
   }
 }
 
@@ -473,26 +453,6 @@ void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
   }
 }
 
-VersionVector Node::GenerateDataVV() const {
-  VersionVector vv(view_info_.Size());
-  for (std::size_t i = 0; i != view_info_.Size(); ++i) {
-    if (i == idx_) {
-      vv[i] = vector_clock_[i] - 1;
-    } else {
-      auto nid = view_info_.GetIDByIndex(i);
-      if (!nid.second) {
-        throw Error("Cannot get node id for index " + std::to_string(i));
-      }
-      auto iter = recv_window_.find(nid.first);
-      if (iter == recv_window_.end()) {
-        throw Error("Cannot get recv window for node id " + nid.first);
-      }
-      vv[i] = iter->second.LowerBound();
-    }
-  }
-  return vv;
-}
-
 void Node::PublishHeartbeat() {
   // Schedule next heartbeat event before publishing heartbeat message
   heartbeat_event_ = scheduler_.scheduleEvent(
@@ -500,23 +460,36 @@ void Node::PublishHeartbeat() {
           time::milliseconds(heartbeat_random_delay_(rengine_)),
       [this] { PublishHeartbeat(); });
 
-  PublishData("Heartbeat", kHeartbeat);
+  proto::Heartbeat hb_proto;
+  hb_proto.set_view_num(view_id_.first);
+  hb_proto.set_leader_id(view_id_.second);
+  PublishData(hb_proto.SerializeAsString(), kHeartbeat);
 }
 
-void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
-  if (vid != view_id_) {
-    VSYNC_LOG_INFO("Ignore heartbeat for non-current view id " << vid);
+void Node::ProcessHeartbeat(const Block& content, const NodeID& nid) {
+  proto::Heartbeat hb_proto;
+  if (!hb_proto.ParseFromArray(content.value(), content.value_size())) {
+    VSYNC_LOG_WARN("Invalid heartbeat content format: nid=" << nid);
+    return;
+  }
+
+  if (hb_proto.view_num() != view_id_.first ||
+      hb_proto.leader_id() != view_id_.second) {
+    VSYNC_LOG_INFO("Ignore heartbeat for non-current view id {"
+                   << hb_proto.view_num() << "," << hb_proto.leader_id()
+                   << "}");
     return;
   }
 
   auto index = view_info_.GetIndexByID(nid);
   if (!index.second) {
-    VSYNC_LOG_WARN("Unkown node id in received heartbeat: " << nid);
+    VSYNC_LOG_WARN("Unkown node id in received heartbeat: nid=" << nid);
     return;
   }
 
-  VSYNC_LOG_INFO("Recv: HEARTBEAT from node " << nid << " [idx=" << index.first
-                                              << ']');
+  VSYNC_LOG_INFO("Recv: HEARTBEAT, nid="
+                 << nid << " [index=" << index.first << "], view_id={"
+                 << hb_proto.view_num() << "," << hb_proto.leader_id() << '}');
   last_heartbeat_[index.first] = time::steady_clock::now();
 }
 
