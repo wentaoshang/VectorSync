@@ -32,3 +32,15 @@ message Content {
   VV vv = 3;
   string user_data = 4;
 }
+
+// Vsync snapshot content
+message Snapshot {
+  message Entry {
+    string nid = 1;
+    uint64 seq = 2;
+  }
+
+  uint64 view_num = 1;
+  string leader_id = 2;
+  repeated Entry entry = 3;
+}

@@ -38,6 +38,8 @@ class Node {
     kSyncReply = 9668,
     kViewInfo = 9669,
     kVectorClock = 9670,
+    kNodeSnapshot = 9671,
+    kGroupSnapshot = 9672,
   };
 
   class Error : public std::exception {
@@ -125,6 +127,9 @@ class Node {
 
   inline void ProcessLeaderElectionTimeout();
 
+  void PublishNodeSnapshot();
+  void ProcessNodeSnapshot(const Block& content, const NodeID& nid);
+
   Face& face_;
   Scheduler& scheduler_;
   KeyChain& key_chain_;
@@ -142,7 +147,10 @@ class Node {
 
   // In-memory store for all data
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;
-  DataSignal data_signal_;
+
+  // Snapshot of the entire dataset
+  std::unordered_map<NodeID, uint64_t> snapshot_;
+  std::vector<bool> node_snapshot_bitmap_;
 
   std::mt19937 rengine_;
   std::uniform_int_distribution<> heartbeat_random_delay_;
@@ -153,6 +161,7 @@ class Node {
   util::scheduler::ScopedEventId leader_election_event_;
   std::vector<time::steady_clock::TimePoint> last_heartbeat_;
 
+  DataSignal data_signal_;
   ViewChangeSignal view_change_signal_;
   VectorClockSignal vector_clock_change_signal_;
 };

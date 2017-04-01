@@ -30,10 +30,6 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       heartbeat_event_(scheduler_),
       healthcheck_event_(scheduler_),
       leader_election_event_(scheduler_) {
-  ResetState();
-
-  if (is_leader_) PublishViewInfo();
-
   face_.setInterestFilter(
       kSyncPrefix, std::bind(&Node::OnSyncInterest, this, _2),
       [this](const Name&, const std::string& reason) {
@@ -45,6 +41,8 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       [this](const Name&, const std::string& reason) {
         throw Error("Failed to register data prefix: " + reason);
       });
+
+  ResetState();
 
   heartbeat_event_ = scheduler_.scheduleEvent(
       kHeartbeatInterval +
@@ -59,6 +57,10 @@ void Node::ResetState() {
   idx_ = view_info_.GetIndexByID(id_).first;
   is_leader_ = view_id_.second == id_;
   view_change_signal_(view_id_, view_info_, is_leader_);
+  VSYNC_LOG_INFO("Move to new view: vid=" << view_id_
+                                          << ", vinfo=" << view_info_);
+
+  if (is_leader_) PublishViewInfo();
 
   vector_clock_.clear();
   vector_clock_.resize(view_info_.Size());
@@ -73,8 +75,28 @@ void Node::ResetState() {
     auto rw = recv_window_[nid];
     vector_clock_[i] = rw.UpperBound();
   }
-
   vector_clock_change_signal_(idx_, vector_clock_);
+
+  // Update snapshot to the latest sequence numbers in receive windows
+  for (const auto& prw : recv_window_) {
+    auto& s = snapshot_[prw.first];
+    uint64_t seq = prw.second.UpperBound();
+    if (s < seq) s = seq;
+  }
+  PublishNodeSnapshot();
+
+  node_snapshot_bitmap_.clear();
+  node_snapshot_bitmap_.resize(view_info_.Size(), false);
+  node_snapshot_bitmap_[idx_] = true;
+  if (view_info_.Size() == 1) {
+    // We are the only node in this view
+    VSYNC_LOG_INFO("Snapshot up to view " << view_id_ << " is complete: {");
+    for (const auto& p : snapshot_) {
+      VSYNC_LOG_INFO("  " << p.first << ':' << p.second << ',');
+    }
+    VSYNC_LOG_INFO('}');
+  }
+  // TODO: publish group snapshot
 }
 
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
@@ -84,14 +106,10 @@ bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
     return false;
   }
 
-  VSYNC_LOG_INFO("Load view: vid=" << vid << ", vinfo=" << vinfo);
-
   idx_ = p.first;
   view_id_ = vid;
   view_info_ = vinfo;
   ResetState();
-  if (is_leader_) PublishViewInfo();
-  PublishHeartbeat();
 
   return true;
 }
@@ -155,11 +173,7 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
       return;
 
     ++view_id_.first;
-    VSYNC_LOG_INFO("Move to new view: vid=" << view_id_
-                                            << ", vinfo=" << view_info_);
     ResetState();
-    PublishViewInfo();
-    PublishHeartbeat();
   }
 }
 
@@ -423,10 +437,18 @@ void Node::OnRemoteData(const Data& data) {
   data_store_[n] = data.shared_from_this();
 
   auto content_type = data.getContentType();
-  if (content_type == kHeartbeat) {
-    ProcessHeartbeat(data.getContent(), nid);
-  } else if (content_type == kUserData) {
-    data_signal_(data.shared_from_this());
+  switch (content_type) {
+    case kHeartbeat:
+      ProcessHeartbeat(data.getContent(), nid);
+      break;
+    case kUserData:
+      data_signal_(data.shared_from_this());
+      break;
+    case kNodeSnapshot:
+      ProcessNodeSnapshot(data.getContent(), nid);
+      break;
+    default:
+      VSYNC_LOG_WARN("Unknown content type in remote data: " << content_type);
   }
 }
 
@@ -477,7 +499,7 @@ void Node::ProcessHeartbeat(const Block& content, const NodeID& nid) {
       hb_proto.leader_id() != view_id_.second) {
     VSYNC_LOG_INFO("Ignore heartbeat for non-current view id {"
                    << hb_proto.view_num() << "," << hb_proto.leader_id()
-                   << "}");
+                   << "} from nid=" << nid);
     return;
   }
 
@@ -517,10 +539,6 @@ void Node::DoHealthcheck() {
       view_info_.Remove(dead_nodes);
       ++view_id_.first;
       ResetState();
-      PublishViewInfo();
-      VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_
-                                                  << ", vinfo=" << view_info_);
-      PublishHeartbeat();
     }
   } else {
     const auto& leader_id = view_id_.second;
@@ -545,10 +563,67 @@ void Node::ProcessLeaderElectionTimeout() {
   // Set self as leader for the new view
   view_id_ = {view_id_.first + 1, id_};
   ResetState();
-  PublishViewInfo();
-  VSYNC_LOG_INFO("Move to new view: view_id=" << view_id_
-                                              << ", vinfo=" << view_info_);
-  PublishHeartbeat();
+}
+
+void Node::PublishNodeSnapshot() {
+  proto::Snapshot ss_proto;
+  ss_proto.set_view_num(view_id_.first);
+  ss_proto.set_leader_id(view_id_.second);
+  for (const auto& p : snapshot_) {
+    auto* entry = ss_proto.add_entry();
+    entry->set_nid(p.first);
+    entry->set_seq(p.second);
+  }
+  PublishData(ss_proto.SerializeAsString(), kNodeSnapshot);
+}
+
+void Node::ProcessNodeSnapshot(const Block& content, const NodeID& nid) {
+  proto::Snapshot ss_proto;
+  if (!ss_proto.ParseFromArray(content.value(), content.value_size())) {
+    VSYNC_LOG_WARN("Invalid node snapshot content format: nid=" << nid);
+    return;
+  }
+
+  if (ss_proto.view_num() != view_id_.first ||
+      ss_proto.leader_id() != view_id_.second) {
+    VSYNC_LOG_INFO("Ignore node snapshot for non-current view id {"
+                   << ss_proto.view_num() << "," << ss_proto.leader_id()
+                   << "} from nid=" << nid);
+    return;
+  }
+
+  auto index = view_info_.GetIndexByID(nid);
+  if (!index.second) {
+    VSYNC_LOG_WARN("Unkown node id in received node snapshot: nid=" << nid);
+    return;
+  }
+
+  VSYNC_LOG_INFO("Recv: NodeSnapshot, nid="
+                 << nid << " [index=" << index.first << "], view_id={"
+                 << ss_proto.view_num() << "," << ss_proto.leader_id() << '}');
+
+  for (int i = 0; i < ss_proto.entry_size(); ++i) {
+    const auto& entry = ss_proto.entry(i);
+    if (entry.nid().empty()) {
+      VSYNC_LOG_WARN("Empty entry nid in received node snapshot: nid=" << nid);
+      return;
+    }
+    auto& s = snapshot_[entry.nid()];
+    if (s < entry.seq()) s = entry.seq();
+    // TODO: check receive window and fetch missing data
+    // TBD: how to figure out the node prefix of the missing data?
+  }
+
+  node_snapshot_bitmap_[index.first] = true;
+  for (bool b : node_snapshot_bitmap_) {
+    if (!b) return;
+  }
+  VSYNC_LOG_INFO("Snapshot up to view " << view_id_ << " is complete: {");
+  for (const auto& p : snapshot_) {
+    VSYNC_LOG_INFO("  " << p.first << ':' << p.second << ',');
+  }
+  VSYNC_LOG_INFO('}');
+  // TODO: publish group snapshot
 }
 
 }  // namespace vsync
