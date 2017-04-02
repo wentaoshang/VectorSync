@@ -95,8 +95,8 @@ void Node::ResetState() {
       VSYNC_LOG_INFO("  " << p.first << ':' << p.second << ',');
     }
     VSYNC_LOG_INFO('}');
+    // TODO: publish group snapshot
   }
-  // TODO: publish group snapshot
 }
 
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
@@ -428,10 +428,11 @@ void Node::OnRemoteData(const Data& data) {
     return;
   }
 
+  auto pfx = ExtractNodePrefix(n);
   auto nid = ExtractNodeID(n);
   auto seq = ExtractSequenceNumber(n);
 
-  UpdateReceiveWindow(data, nid, seq);
+  UpdateReceiveWindow(pfx, nid, seq);
 
   // Store a local copy of received data
   data_store_[n] = data.shared_from_this();
@@ -452,7 +453,7 @@ void Node::OnRemoteData(const Data& data) {
   }
 }
 
-void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
+void Node::UpdateReceiveWindow(const Name& pfx, const NodeID& nid,
                                uint64_t seq) {
   auto& win = recv_window_[nid];
 
@@ -460,7 +461,7 @@ void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
   VSYNC_LOG_TRACE("Insert into recv_window[" << nid << "]: seq=" << seq);
   win.Insert(seq);
 
-  // Check for missing data
+  // Check for missing data before the new seq number
   const auto& missing_seq_intervals = win.CheckForMissingData(seq);
   if (missing_seq_intervals.empty()) {
     VSYNC_LOG_TRACE("No missing data from node " << nid << " before seq num "
@@ -468,7 +469,6 @@ void Node::UpdateReceiveWindow(const Data& data, const NodeID& nid,
     return;
   }
 
-  auto pfx = ExtractNodePrefix(data.getName());
   for (auto iter = boost::icl::elements_begin(missing_seq_intervals);
        iter != boost::icl::elements_end(missing_seq_intervals); ++iter) {
     SendDataInterest(pfx, nid, *iter);

@@ -110,15 +110,17 @@ class Node {
   void ProcessVector(const Data& data);
 
   /**
-   * @brief Adds the extended sequence number of @p data into the receive
-   *        window of node @p nid and slides the window forward until
+   * @brief Adds the sequence number @p seq of the received data into the
+   *        receive window of node @p nid and slides the window forward until
    *        there is a hole (i.e., two non-consecutive esns) in the window.
+   *        Then send Data Interests to fetch missising data with sequence
+   *        number smaller than @p seq.
    *
-   * @param data   Received data from remote node
+   * @param pfx    Received data from remote node
    * @param nid    Node ID of the sender of @p data
    * @param seq    Sequence number of @p data
    */
-  void UpdateReceiveWindow(const Data& data, const NodeID& nid, uint64_t seq);
+  void UpdateReceiveWindow(const Name& pfx, const NodeID& nid, uint64_t seq);
 
   void DoViewChange(const ViewID& vid);
   void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);
