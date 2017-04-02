@@ -87,7 +87,7 @@ class Node {
     this->view_change_signal_.connect(cb);
   }
 
- private:
+ protected:
   Node(const Node&) = delete;
   Node& operator=(const Node&) = delete;
 
