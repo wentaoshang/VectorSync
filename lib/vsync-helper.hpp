@@ -37,7 +37,7 @@ inline std::ostream& operator<<(std::ostream& os,
 namespace ndn {
 namespace vsync {
 
-// Hepbers for view id
+// Helpers for view id
 
 inline std::string ToString(const ViewID& vi) {
   std::ostringstream os;

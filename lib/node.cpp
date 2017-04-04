@@ -114,7 +114,8 @@ bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
   return true;
 }
 
-void Node::DoViewChange(const ViewID& vid) {
+void Node::DoViewChange(const ViewID& vid,
+                        std::shared_ptr<const Interest> pending_sync_interest) {
   const auto& view_num = vid.first;
   const auto& leader_id = vid.second;
   if (view_num > view_id_.first ||
@@ -128,14 +129,17 @@ void Node::DoViewChange(const ViewID& vid) {
     Interest i(n, kViewInfoInterestLifetime);
     VSYNC_LOG_TRACE("Send: i.name=" << n);
     face_.expressInterest(
-        i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
+        i,
+        std::bind(&Node::ProcessViewInfo, this, _1, _2, pending_sync_interest),
         [](const Interest&, const lp::Nack&) {},
-        std::bind(&Node::OnViewInfoInterestTimeout, this, _1, 0));
+        std::bind(&Node::OnViewInfoInterestTimeout, this, _1, 0,
+                  pending_sync_interest));
   }
 }
 
-void Node::OnViewInfoInterestTimeout(const Interest& interest,
-                                     int retry_count) {
+void Node::OnViewInfoInterestTimeout(
+    const Interest& interest, int retry_count,
+    std::shared_ptr<const Interest> pending_sync_interest) {
   VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
                                      << ", retry_count=" << retry_count);
   if (retry_count > kInterestMaxRetrans) return;
@@ -143,12 +147,15 @@ void Node::OnViewInfoInterestTimeout(const Interest& interest,
   Interest i(interest.getName(), kViewInfoInterestLifetime);
   // TBD: increase interest lifetime exponentially?
   face_.expressInterest(
-      i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
+      i, std::bind(&Node::ProcessViewInfo, this, _1, _2, pending_sync_interest),
       [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnViewInfoInterestTimeout, this, _1, retry_count + 1));
+      std::bind(&Node::OnViewInfoInterestTimeout, this, _1, retry_count + 1,
+                pending_sync_interest));
 }
 
-void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
+void Node::ProcessViewInfo(
+    const Interest& vinterest, const Data& vinfo,
+    std::shared_ptr<const Interest> pending_sync_interest) {
   const auto& n = vinfo.getName();
   VSYNC_LOG_TRACE("Recv: d.name=" << n);
   if (n.size() != vinterest.getName().size()) {
@@ -171,6 +178,7 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
 
   ViewID vid = ExtractViewID(n);
   if (vid.first > view_id_.first) {
+    // Move to higher view using received view info
     if (!LoadView(vid, view_info)) {
       VSYNC_LOG_WARN("Cannot load received view: vinfo=" << view_info);
       return;
@@ -178,17 +186,27 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
 
     // Cancel any leader election event
     leader_election_event_.cancel();
+
+    // Process pending sync interest
+    SendVectorInterest(pending_sync_interest->getName());
   } else if (is_leader_ &&
              ((vid.first < view_id_.first && vid.second != id_) ||
               (vid.first == view_id_.first && vid.second < id_))) {
-    if (!view_info_.Merge(view_info) && vid.first < view_id_.first)
+    if (!view_info_.Merge(view_info) && vid.first < view_id_.first) {
       // No need to do view change since there is no change to group membership
       // and current view number is higher than the received one. The node with
       // lower view number will move to higher view anyway.
+      VSYNC_LOG_INFO(
+          "Received view info has no new member and we are in a higher view: "
+          << "received vinfo = " << view_info << ", our vid = " << view_id_);
       return;
+    }
 
     ++view_id_.first;
     ResetState();
+
+    // Process pending sync interest
+    SendVectorInterest(pending_sync_interest->getName());
   }
 }
 
@@ -343,7 +361,7 @@ void Node::OnSyncInterest(const Interest& interest) {
 
     // Check view id
     if (vi != view_id_) {
-      DoViewChange(vi);
+      DoViewChange(vi, interest.shared_from_this());
       return;
     }
 

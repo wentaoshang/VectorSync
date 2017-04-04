@@ -124,9 +124,11 @@ class Node {
    */
   void UpdateReceiveWindow(const Name& pfx, const NodeID& nid, uint64_t seq);
 
-  void DoViewChange(const ViewID& vid);
-  void OnViewInfoInterestTimeout(const Interest& interest, int retry_count);
-  void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);
+  void DoViewChange(const ViewID& vid, std::shared_ptr<const Interest>);
+  void OnViewInfoInterestTimeout(const Interest& interest, int retry_count,
+                                 std::shared_ptr<const Interest>);
+  void ProcessViewInfo(const Interest& vinterest, const Data& vinfo,
+                       std::shared_ptr<const Interest>);
   inline void PublishViewInfo();
   void DoHealthcheck();
 
