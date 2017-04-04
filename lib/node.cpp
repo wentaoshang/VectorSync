@@ -42,6 +42,7 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
         throw Error("Failed to register data prefix: " + reason);
       });
 
+  recv_window_[id_].first = prefix_.toUri();
   ResetState();
 
   heartbeat_event_ = scheduler_.scheduleEvent(
@@ -72,15 +73,19 @@ void Node::ResetState() {
   // Preserve sequence numbers for the nodes that survived the view change
   for (std::size_t i = 0; i < view_info_.Size(); ++i) {
     auto nid = view_info_.GetIDByIndex(i).first;
-    auto rw = recv_window_[nid];
-    vector_clock_[i] = rw.UpperBound();
+    auto pfx = view_info_.GetPrefixByIndex(i).first;
+    auto& rw = recv_window_[nid];
+    if (rw.first.empty()) rw.first = pfx.toUri();
+    vector_clock_[i] = rw.second.UpperBound();
   }
   vector_clock_change_signal_(idx_, vector_clock_);
 
   // Update snapshot to the latest sequence numbers in receive windows
   for (const auto& prw : recv_window_) {
-    auto& s = snapshot_[prw.first];
-    uint64_t seq = prw.second.UpperBound();
+    const auto& nid = prw.first;
+    const auto& rw = prw.second.second;
+    auto& s = snapshot_[nid];
+    uint64_t seq = rw.UpperBound();
     if (s < seq) s = seq;
   }
   PublishNodeSnapshot();
@@ -90,12 +95,7 @@ void Node::ResetState() {
   node_snapshot_bitmap_[idx_] = true;
   if (view_info_.Size() == 1) {
     // We are the only node in this view
-    VSYNC_LOG_INFO("Snapshot up to view " << view_id_ << " is complete: {");
-    for (const auto& p : snapshot_) {
-      VSYNC_LOG_INFO("  " << p.first << ':' << p.second << ',');
-    }
-    VSYNC_LOG_INFO('}');
-    // TODO: publish group snapshot
+    PublishGroupSnapshot();
   }
 }
 
@@ -229,7 +229,7 @@ std::shared_ptr<const Data> Node::PublishData(const std::string& content,
   uint64_t seq = ++vector_clock_[idx_];
   vector_clock_change_signal_(idx_, vector_clock_);
 
-  recv_window_[id_].Insert(seq);
+  recv_window_[id_].second.Insert(seq);
 
   auto n = MakeDataName(prefix_, id_, seq);
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
@@ -258,6 +258,7 @@ void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
   face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
                         [](const Interest&, const lp::Nack&) {},
                         std::bind(&Node::OnDataInterestTimeout, this, _1, 0));
+  // TODO: use link when fetching missing data
 }
 
 void Node::OnDataInterestTimeout(const Interest& interest, int retry_count) {
@@ -525,7 +526,9 @@ void Node::OnRemoteData(const Data& data) {
 
 void Node::UpdateReceiveWindow(const Name& pfx, const NodeID& nid,
                                uint64_t seq) {
-  auto& win = recv_window_[nid];
+  auto& entry = recv_window_[nid];
+  if (entry.first.empty()) entry.first = pfx.toUri();
+  auto& win = entry.second;
 
   // Insert the new seq number into the receive window
   VSYNC_LOG_TRACE("Insert into recv_window[" << nid << "]: seq=" << seq);
@@ -640,7 +643,19 @@ void Node::PublishNodeSnapshot() {
   ss_proto.set_view_num(view_id_.first);
   ss_proto.set_leader_id(view_id_.second);
   for (const auto& p : snapshot_) {
+    auto iter = recv_window_.find(p.first);
+    if (iter == recv_window_.end()) {
+      VSYNC_LOG_DEBUG("Node ID " << p.first << " not found in recv window");
+      return;
+    }
+    const auto& prefix = iter->second.first;
+    if (prefix.empty()) {
+      VSYNC_LOG_DEBUG("Node prefix for ID " << p.first
+                                            << " is not set in recv window");
+      return;
+    }
     auto* entry = ss_proto.add_entry();
+    entry->set_prefix(prefix);
     entry->set_nid(p.first);
     entry->set_seq(p.second);
   }
@@ -680,20 +695,60 @@ void Node::ProcessNodeSnapshot(const Block& content, const NodeID& nid) {
     }
     auto& s = snapshot_[entry.nid()];
     if (s < entry.seq()) s = entry.seq();
-    // TODO: check receive window and fetch missing data
-    // TBD: how to figure out the node prefix of the missing data?
+    // Check receive window and fetch missing data
+    UpdateReceiveWindow(entry.prefix(), entry.nid(), entry.seq());
+    // UpdateReceiveWindow assumes entry.seq() has been received and will
+    // request data up to entry.seq() - 1. So need to send another interest to
+    // fetch entry.seq()
+    SendDataInterest(entry.prefix(), entry.nid(), entry.seq());
   }
 
   node_snapshot_bitmap_[index.first] = true;
   for (bool b : node_snapshot_bitmap_) {
     if (!b) return;
   }
+  // Snapshot complete
+  PublishGroupSnapshot();
+}
+
+void Node::PublishGroupSnapshot() {
   VSYNC_LOG_INFO("Snapshot up to view " << view_id_ << " is complete: {");
   for (const auto& p : snapshot_) {
     VSYNC_LOG_INFO("  " << p.first << ':' << p.second << ',');
   }
   VSYNC_LOG_INFO('}');
-  // TODO: publish group snapshot
+
+  proto::Snapshot ss_proto;
+  ss_proto.set_view_num(view_id_.first);
+  ss_proto.set_leader_id(view_id_.second);
+  for (const auto& p : snapshot_) {
+    auto iter = recv_window_.find(p.first);
+    if (iter == recv_window_.end()) {
+      VSYNC_LOG_DEBUG("Node ID " << p.first << " not found in recv window");
+      return;
+    }
+    const auto& prefix = iter->second.first;
+    if (prefix.empty()) {
+      VSYNC_LOG_DEBUG("Node prefix for ID " << p.first
+                                            << " is not set in recv window");
+      return;
+    }
+    auto* entry = ss_proto.add_entry();
+    entry->set_prefix(prefix);
+    entry->set_nid(p.first);
+    entry->set_seq(p.second);
+  }
+
+  auto n = MakeSnapshotName(view_id_);
+  VSYNC_LOG_TRACE("Publish: d.name=" << n);
+  std::string content = ss_proto.SerializeAsString();
+  std::shared_ptr<Data> d = std::make_shared<Data>(n);
+  d->setFreshnessPeriod(time::seconds(3600));
+  d->setContent(reinterpret_cast<const uint8_t*>(content.data()),
+                content.size());
+  d->setContentType(kGroupSnapshot);
+  key_chain_.sign(*d, signingWithSha256());
+  data_store_[n] = d;
 }
 
 }  // namespace vsync

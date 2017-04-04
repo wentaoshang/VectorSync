@@ -23,7 +23,7 @@ void SONode::OnAppData(std::shared_ptr<const Data> data) {
   auto& node_store = app_data_store_[nid];
   node_store[seq] = data;
 
-  const auto& rw = recv_window_[nid];
+  const auto& rw = recv_window_[nid].second;
   uint64_t lb = rw.LowerBound();
   assert(lb >= last_consumed_seq);
   if (lb == seq) {

@@ -136,6 +136,7 @@ class Node {
 
   void PublishNodeSnapshot();
   void ProcessNodeSnapshot(const Block& content, const NodeID& nid);
+  void PublishGroupSnapshot();
 
   Face& face_;
   Scheduler& scheduler_;
@@ -149,8 +150,9 @@ class Node {
   ViewInfo view_info_;
   VersionVector vector_clock_;
 
-  // Hash table mapping node ID to its receive window
-  std::unordered_map<NodeID, ReceiveWindow> recv_window_;
+  // Hash table mapping node ID to its node prefix URI and receive window
+  std::unordered_map<NodeID, std::pair<std::string, ReceiveWindow>>
+      recv_window_;
 
   // In-memory store for all data
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;

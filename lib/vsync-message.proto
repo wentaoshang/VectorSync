@@ -36,8 +36,9 @@ message Content {
 // Vsync snapshot content
 message Snapshot {
   message Entry {
-    string nid = 1;
-    uint64 seq = 2;
+    string prefix = 1;
+    string nid = 2;
+    uint64 seq = 3;
   }
 
   uint64 view_num = 1;

@@ -130,8 +130,22 @@ inline Name MakeVectorInterestName(const Name& sync_interest_name) {
 
 inline Name MakeViewInfoName(const ViewID& vid) {
   // name = /[vsync_prefix]/vinfo/[view_num]/[leader_id]/%00
+  // %00 is appended so that view_num is 3rd to last component and leader_id is
+  // 2nd to last
   Name n(kSyncPrefix);
   n.append("vinfo").appendNumber(vid.first).append(vid.second).appendNumber(0);
+  return n;
+}
+
+inline Name MakeSnapshotName(const ViewID& vid) {
+  // name = /[vsync_prefix]/snapshot/[view_num]/[leader_id]/%00
+  // %00 is appended so that view_num is 3rd to last component and leader_id is
+  // 2nd to last
+  Name n(kSyncPrefix);
+  n.append("snapshot")
+      .appendNumber(vid.first)
+      .append(vid.second)
+      .appendNumber(0);
   return n;
 }
 
