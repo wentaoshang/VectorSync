@@ -463,6 +463,8 @@ void Node::OnRemoteData(const Data& data) {
     return;
   }
 
+  VSYNC_LOG_TRACE("Recv: d.name=" << n);
+
   if (data_store_.find(n) != data_store_.end()) {
     // A node may receive duplicate data if it sends multiple Interests for the
     // same data. NDN-CXX will not merge the duplicate pending Interests.
