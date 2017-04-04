@@ -136,7 +136,8 @@ void Node::DoViewChange(const ViewID& vid) {
 
 void Node::OnViewInfoInterestTimeout(const Interest& interest,
                                      int retry_count) {
-  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
+                                     << ", retry_count=" << retry_count);
   if (retry_count > kInterestMaxRetrans) return;
   VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
   // TBD: increase interest lifetime exponentially?
@@ -241,7 +242,8 @@ void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
 }
 
 void Node::OnDataInterestTimeout(const Interest& interest, int retry_count) {
-  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
+                                     << ", retry_count=" << retry_count);
   if (retry_count > kInterestMaxRetrans) return;
   VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
   // TBD: increase interest lifetime exponentially?
@@ -286,7 +288,8 @@ void Node::SendSyncInterest() {
 }
 
 void Node::OnSyncInterestTimeout(const Interest& interest, int retry_count) {
-  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
+                                     << ", retry_count=" << retry_count);
   if (retry_count > kInterestMaxRetrans) return;
   VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
   // TBD: increase interest lifetime exponentially?
@@ -366,7 +369,8 @@ void Node::SendVectorInterest(const Name& sync_interest_name) {
 }
 
 void Node::OnVectorInterestTimeout(const Interest& interest, int retry_count) {
-  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
+                                     << ", retry_count=" << retry_count);
   if (retry_count > kInterestMaxRetrans) return;
   VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
   // TBD: increase interest lifetime exponentially?
