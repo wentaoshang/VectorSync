@@ -94,9 +94,10 @@ class Node {
   void ResetState();
 
   inline void SendSyncInterest();
+  void OnSyncInterestTimeout(const Interest& interest, int retry_count);
   inline void SendDataInterest(const Name& prefix, const NodeID& nid,
                                uint64_t seq);
-  void OnInterestTimeout(const Interest& interest, int retry_count);
+  void OnDataInterestTimeout(const Interest& interest, int retry_count);
   inline void SendSyncReply(const Name& n);
   inline void PublishHeartbeat();
   inline void ProcessHeartbeat(const Block& content, const NodeID& nid);
@@ -106,6 +107,7 @@ class Node {
   void OnRemoteData(const Data& data);
 
   void SendVectorInterest(const Name& sync_interest_name);
+  void OnVectorInterestTimeout(const Interest& interest, int retry_count);
   void PublishVector(const Name& sync_interest_name);
   void ProcessVector(const Data& data);
 
@@ -123,6 +125,7 @@ class Node {
   void UpdateReceiveWindow(const Name& pfx, const NodeID& nid, uint64_t seq);
 
   void DoViewChange(const ViewID& vid);
+  void OnViewInfoInterestTimeout(const Interest& interest, int retry_count);
   void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);
   inline void PublishViewInfo();
   void DoHealthcheck();

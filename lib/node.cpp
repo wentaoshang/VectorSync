@@ -127,10 +127,23 @@ void Node::DoViewChange(const ViewID& vid) {
 
     Interest i(n, kViewInfoInterestLifetime);
     VSYNC_LOG_TRACE("Send: i.name=" << n);
-    face_.expressInterest(i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
-                          [](const Interest&, const lp::Nack&) {},
-                          std::bind(&Node::OnInterestTimeout, this, _1, 0));
+    face_.expressInterest(
+        i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
+        [](const Interest&, const lp::Nack&) {},
+        std::bind(&Node::OnViewInfoInterestTimeout, this, _1, 0));
   }
+}
+
+void Node::OnViewInfoInterestTimeout(const Interest& interest,
+                                     int retry_count) {
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  if (retry_count > kInterestMaxRetrans) return;
+  VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
+  // TBD: increase interest lifetime exponentially?
+  face_.expressInterest(
+      interest, std::bind(&Node::ProcessViewInfo, this, _1, _2),
+      [](const Interest&, const lp::Nack&) {},
+      std::bind(&Node::OnViewInfoInterestTimeout, this, _1, retry_count + 1));
 }
 
 void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
@@ -224,7 +237,18 @@ void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
   VSYNC_LOG_TRACE("Send: i.name=" << in);
   face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
                         [](const Interest&, const lp::Nack&) {},
-                        std::bind(&Node::OnInterestTimeout, this, _1, 0));
+                        std::bind(&Node::OnDataInterestTimeout, this, _1, 0));
+}
+
+void Node::OnDataInterestTimeout(const Interest& interest, int retry_count) {
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  if (retry_count > kInterestMaxRetrans) return;
+  VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
+  // TBD: increase interest lifetime exponentially?
+  face_.expressInterest(
+      interest, std::bind(&Node::OnRemoteData, this, _2),
+      [](const Interest&, const lp::Nack&) {},
+      std::bind(&Node::OnDataInterestTimeout, this, _1, retry_count + 1));
 }
 
 void Node::OnDataInterest(const Interest& interest) {
@@ -252,20 +276,27 @@ void Node::SendSyncInterest() {
 
   VSYNC_LOG_TRACE("Send: i.name=" << n);
   Interest i(n, kSyncInterestLifetime);
-  face_.expressInterest(i, [](const Interest&, const Data&) {},
-                        [](const Interest&, const lp::Nack&) {},
-                        std::bind(&Node::OnInterestTimeout, this, _1, 0));
+  face_.expressInterest(
+      i,
+      [](const Interest& inst, const Data& ack) {
+        VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
+      },
+      [](const Interest&, const lp::Nack&) {},
+      std::bind(&Node::OnSyncInterestTimeout, this, _1, 0));
 }
 
-void Node::OnInterestTimeout(const Interest& interest, int retry_count) {
+void Node::OnSyncInterestTimeout(const Interest& interest, int retry_count) {
   VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
   if (retry_count > kInterestMaxRetrans) return;
   VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
   // TBD: increase interest lifetime exponentially?
   face_.expressInterest(
-      interest, [](const Interest&, const Data&) {},
+      interest,
+      [](const Interest& inst, const Data& ack) {
+        VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
+      },
       [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnInterestTimeout, this, _1, retry_count + 1));
+      std::bind(&Node::OnSyncInterestTimeout, this, _1, retry_count + 1));
 }
 
 void Node::SendSyncReply(const Name& n) {
@@ -331,7 +362,18 @@ void Node::SendVectorInterest(const Name& sync_interest_name) {
   Interest i(n, kVectorInterestLifetime);
   face_.expressInterest(i, std::bind(&Node::ProcessVector, this, _2),
                         [](const Interest&, const lp::Nack&) {},
-                        std::bind(&Node::OnInterestTimeout, this, _1, 0));
+                        std::bind(&Node::OnVectorInterestTimeout, this, _1, 0));
+}
+
+void Node::OnVectorInterestTimeout(const Interest& interest, int retry_count) {
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName());
+  if (retry_count > kInterestMaxRetrans) return;
+  VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
+  // TBD: increase interest lifetime exponentially?
+  face_.expressInterest(
+      interest, std::bind(&Node::ProcessVector, this, _2),
+      [](const Interest&, const lp::Nack&) {},
+      std::bind(&Node::OnVectorInterestTimeout, this, _1, retry_count + 1));
 }
 
 void Node::PublishVector(const Name& sync_interest_name) {
