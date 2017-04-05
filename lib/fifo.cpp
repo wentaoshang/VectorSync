@@ -1,15 +1,15 @@
 /* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
-#include "sequential.hpp"
+#include "fifo.hpp"
 #include "logging.hpp"
 #include "vsync-helper.hpp"
 
-VSYNC_LOG_DEFINE(ndn.vsync.SONode);
+VSYNC_LOG_DEFINE(ndn.vsync.FIFONode);
 
 namespace ndn {
 namespace vsync {
 
-void SONode::OnAppData(std::shared_ptr<const Data> data) {
+void FIFONode::OnAppData(std::shared_ptr<const Data> data) {
   const auto& n = data->getName();
   auto nid = ExtractNodeID(n);
   auto seq = ExtractSequenceNumber(n);
@@ -32,8 +32,8 @@ void SONode::OnAppData(std::shared_ptr<const Data> data) {
   }
 }
 
-void SONode::ConsumeData(const PerNodeDataStore& store, uint64_t begin,
-                         uint64_t end) {
+void FIFONode::ConsumeData(const PerNodeDataStore& store, uint64_t begin,
+                           uint64_t end) {
   VSYNC_LOG_TRACE("Consume SC data with sequence number in the range ("
                   << begin << ", " << end << ']');
   assert(begin < end);

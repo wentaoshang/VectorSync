@@ -54,9 +54,9 @@ def build(bld):
                 install_path = None,
                 use = 'NDN_CXX BOOST vsync')
 
-    bld.program(target = 'simple-so',
-                name = 'simple-so',
-                source = 'examples/simple-so.cpp',
+    bld.program(target = 'simple-fifo',
+                name = 'simple-fifo',
+                source = 'examples/simple-fifo.cpp',
                 includes = 'examples',
                 install_path = None,
                 use = 'NDN_CXX BOOST vsync')

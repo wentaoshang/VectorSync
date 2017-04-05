@@ -4,19 +4,19 @@
 #include <iostream>
 #include <random>
 
-#include "sequential.hpp"
+#include "fifo.hpp"
 
 namespace ndn {
 namespace vsync {
 namespace examples {
 
-class SimpleSONode {
+class SimpleFIFONode {
  public:
-  SimpleSONode(const NodeID& nid, const Name& prefix, uint32_t seed)
+  SimpleFIFONode(const NodeID& nid, const Name& prefix, uint32_t seed)
       : face_(io_service_),
         scheduler_(io_service_),
         node_(face_, scheduler_, key_chain_, nid, prefix, seed,
-              std::bind(&SimpleSONode::OnData, this, _1)),
+              std::bind(&SimpleFIFONode::OnData, this, _1)),
         rengine_(seed),
         rdist_(500, 10000) {}
 
@@ -45,7 +45,7 @@ class SimpleSONode {
   Face face_;
   Scheduler scheduler_;
   KeyChain key_chain_;
-  SONode node_;
+  FIFONode node_;
 
   std::mt19937 rengine_;
   std::uniform_int_distribution<> rdist_;
@@ -64,7 +64,7 @@ int main(int argc, char* argv[]) {
 
   std::random_device rdevice;
 
-  SimpleSONode node(nid, prefix, static_cast<uint32_t>(rdevice()));
+  SimpleFIFONode node(nid, prefix, static_cast<uint32_t>(rdevice()));
   node.Start();
   return 0;
 }

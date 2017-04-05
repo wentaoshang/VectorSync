@@ -1,7 +1,7 @@
 /* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
-#ifndef NDN_VSYNC_SEQUENTIAL_HPP_
-#define NDN_VSYNC_SEQUENTIAL_HPP_
+#ifndef NDN_VSYNC_FIFO_HPP_
+#define NDN_VSYNC_FIFO_HPP_
 
 #include <map>
 #include <unordered_map>
@@ -11,14 +11,14 @@
 namespace ndn {
 namespace vsync {
 
-class SONode : public Node {
+class FIFONode : public Node {
  public:
-  using SODataCb = std::function<void(std::shared_ptr<const Data>)>;
+  using FIFODataCb = std::function<void(std::shared_ptr<const Data>)>;
 
-  SONode(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-         const NodeID& nid, const Name& prefix, uint32_t seed, SODataCb cb)
+  FIFONode(Face& face, Scheduler& scheduler, KeyChain& key_chain,
+           const NodeID& nid, const Name& prefix, uint32_t seed, FIFODataCb cb)
       : Node(face, scheduler, key_chain, nid, prefix, seed), app_data_cb_(cb) {
-    ConnectDataSignal(std::bind(&SONode::OnAppData, this, _1));
+    ConnectDataSignal(std::bind(&FIFONode::OnAppData, this, _1));
   }
 
  private:
@@ -39,10 +39,10 @@ class SONode : public Node {
   std::unordered_map<NodeID, uint64_t> last_consumed_seq_num_;
   std::unordered_map<NodeID, PerNodeDataStore> app_data_store_;
 
-  SODataCb app_data_cb_;
+  FIFODataCb app_data_cb_;
 };
 
 }  // namespace vsync
 }  // namespace ndn
 
-#endif  // NDN_VSYNC_SEQUENTIAL_HPP_
+#endif  // NDN_VSYNC_FIFO_HPP_
