@@ -708,7 +708,7 @@ void Node::ProcessNodeSnapshot(const Block& content, const NodeID& nid) {
     if (!b) return;
   }
   // Snapshot complete
-  PublishGroupSnapshot();
+  if (is_leader_) PublishGroupSnapshot();
 }
 
 void Node::PublishGroupSnapshot() {
