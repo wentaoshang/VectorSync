@@ -15,10 +15,11 @@ class SimpleFIFONode {
   SimpleFIFONode(const NodeID& nid, const Name& prefix, uint32_t seed)
       : face_(io_service_),
         scheduler_(io_service_),
-        node_(face_, scheduler_, key_chain_, nid, prefix, seed,
-              std::bind(&SimpleFIFONode::OnData, this, _1)),
+        node_(face_, scheduler_, key_chain_, nid, prefix, seed),
         rengine_(seed),
-        rdist_(500, 10000) {}
+        rdist_(500, 10000) {
+    node_.ConnectFIFODataSignal(std::bind(&SimpleFIFONode::OnData, this, _1));
+  }
 
   void Start() {
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),

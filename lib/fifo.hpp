@@ -11,35 +11,44 @@
 namespace ndn {
 namespace vsync {
 
+/**
+ * @brief FIFO-ordered sync node supporting FIFO consistency
+ */
 class FIFONode : public Node {
  public:
-  using FIFODataCb = std::function<void(std::shared_ptr<const Data>)>;
+  using FIFODataSignal = util::Signal<FIFONode, std::shared_ptr<const Data>>;
+  using FIFODataCb = FIFODataSignal::Handler;
 
   FIFONode(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-           const NodeID& nid, const Name& prefix, uint32_t seed, FIFODataCb cb)
-      : Node(face, scheduler, key_chain, nid, prefix, seed), app_data_cb_(cb) {
-    ConnectDataSignal(std::bind(&FIFONode::OnAppData, this, _1));
+           const NodeID& nid, const Name& prefix, uint32_t seed)
+      : Node(face, scheduler, key_chain, nid, prefix, seed) {
+    ConnectDataSignal(std::bind(&FIFONode::OnNodeData, this, _1));
+  }
+
+  void ConnectFIFODataSignal(FIFODataCb cb) {
+    this->fifo_data_signal_.connect(cb);
   }
 
  private:
   using PerNodeDataStore = std::map<uint64_t, std::shared_ptr<const Data>>;
 
-  void OnAppData(std::shared_ptr<const Data>);
+  void OnNodeData(std::shared_ptr<const Data>);
 
   /**
    * @brief  Consume data stored in @p store with sequence number in the range
-   *         (begin, end].
+   *         (begin, end] in FIFO order.
    *
    * @param  store  Node data store
    * @param  begin  Seq num of the last consumed data from the store
    * @param  end    Seq num of the last data to be consumed
    */
-  void ConsumeData(const PerNodeDataStore& store, uint64_t begin, uint64_t end);
+  void ConsumeFIFOData(const PerNodeDataStore& store, uint64_t begin,
+                       uint64_t end);
 
   std::unordered_map<NodeID, uint64_t> last_consumed_seq_num_;
-  std::unordered_map<NodeID, PerNodeDataStore> app_data_store_;
+  std::unordered_map<NodeID, PerNodeDataStore> fifo_data_store_;
 
-  FIFODataCb app_data_cb_;
+  FIFODataSignal fifo_data_signal_;
 };
 
 }  // namespace vsync
