@@ -44,10 +44,7 @@ void FIFONode::ConsumeFIFOData(const PerNodeDataStore& store, uint64_t begin,
     return;
   }
 
-  auto iter = store.begin();
-  if (begin > 0) iter = store.find(begin);
-  assert(iter != store.end());
-  ++iter;
+  auto iter = store.upper_bound(begin);
   while (iter != store.end() && iter->first <= end) {
     fifo_data_signal_(iter->second);
     ++iter;
