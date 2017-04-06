@@ -4,7 +4,7 @@
 #include <iostream>
 #include <random>
 
-#include "vsync.hpp"
+#include "node.hpp"
 
 namespace ndn {
 namespace vsync {
