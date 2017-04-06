@@ -54,7 +54,7 @@ BOOST_AUTO_TEST_CASE(HasAllDataBefore) {
   BOOST_CHECK_EQUAL(rw.HasAllDataBefore(8), false);
 }
 
-BOOST_AUTO_TEST_CASE(Bouds) {
+BOOST_AUTO_TEST_CASE(Bounds) {
   ReceiveWindow rw;
   rw.Insert(1);
   rw.Insert(3);
