@@ -45,3 +45,18 @@ message Snapshot {
   string leader_id = 2;
   repeated Entry entry = 3;
 }
+
+// Vsync causally-ordered data content
+message COData {
+  message EVV {
+    message Entry {
+      string nid = 1;
+      uint64 seq = 2;
+    }
+
+    repeated Entry entry = 1;
+  }
+
+  string content = 1;
+  EVV evv = 2;
+}
