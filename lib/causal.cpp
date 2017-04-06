@@ -49,7 +49,7 @@ static std::pair<CONode::EVV, bool> ExtractEVV(const Block& content) {
   return {ret, true};
 }
 
-void CONode::OnFIFOData(std::shared_ptr<const Data> data) {
+void CONode::OnNodeData(std::shared_ptr<const Data> data) {
   VSYNC_LOG_TRACE("Recv: COData.Name=" << data->getName());
   auto p = ExtractEVV(data->getContent());
   if (!p.second) {

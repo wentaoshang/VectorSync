@@ -6,7 +6,7 @@
 #include <map>
 #include <unordered_map>
 
-#include "fifo.hpp"
+#include "node.hpp"
 
 namespace ndn {
 namespace vsync {
@@ -14,7 +14,7 @@ namespace vsync {
 /**
  * @brief Causally-ordered sync node supporting causal consistency
  */
-class CONode : public FIFONode {
+class CONode : public Node {
  public:
   using CODataSignal = util::Signal<CONode, std::shared_ptr<const Data>>;
   using CODataCb = CODataSignal::Handler;
@@ -24,8 +24,8 @@ class CONode : public FIFONode {
 
   CONode(Face& face, Scheduler& scheduler, KeyChain& key_chain,
          const NodeID& nid, const Name& prefix, uint32_t seed)
-      : FIFONode(face, scheduler, key_chain, nid, prefix, seed) {
-    ConnectFIFODataSignal(std::bind(&CONode::OnFIFOData, this, _1));
+      : Node(face, scheduler, key_chain, nid, prefix, seed) {
+    ConnectDataSignal(std::bind(&CONode::OnNodeData, this, _1));
   }
 
   void ConnectCODataSignal(CODataCb cb) { this->co_data_signal_.connect(cb); }
@@ -72,7 +72,7 @@ class CONode : public FIFONode {
 
   using EVVQueue = std::map<EVV, std::shared_ptr<const Data>, EVVCompare>;
 
-  void OnFIFOData(std::shared_ptr<const Data>);
+  void OnNodeData(std::shared_ptr<const Data>);
 
   void ConsumeCOData(std::shared_ptr<const Data>, const EVV&);
 
