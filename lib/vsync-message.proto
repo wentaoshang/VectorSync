@@ -60,3 +60,15 @@ message COData {
   string content = 1;
   EVV evv = 2;
 }
+
+// Vsync consensus data content
+message TOData {
+  enum Command {
+    VOTE = 0;
+    COMMIT = 1;
+  }
+
+  Command cmd = 1;
+  uint64 num = 2;
+  string param = 3;
+}
