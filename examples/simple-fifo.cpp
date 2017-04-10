@@ -29,15 +29,11 @@ class SimpleFIFONode {
 
  private:
   void OnData(std::shared_ptr<const Data> data) {
-    const auto& content = data->getContent();
-    std::cout << "Upcall OnData: Name=" << data->getName() << ", Content=\""
-              << std::string(reinterpret_cast<const char*>(content.value()),
-                             content.value_size())
-              << '"' << std::endl;
+    std::cout << "Upcall OnData: Name=" << data->getName() << std::endl;
   }
 
   void PublishData() {
-    node_.PublishData("Hello from " + node_.GetNodeID());
+    node_.PublishFIFOData("Hello from " + node_.GetNodeID());
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
                              [this] { PublishData(); });
   }

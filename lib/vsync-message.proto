@@ -46,6 +46,12 @@ message Snapshot {
   repeated Entry entry = 3;
 }
 
+// Vsync FIFO-ordered data content
+message FIFOData {
+  string content = 1;
+  uint64 prev = 2;
+}
+
 // Vsync causally-ordered data content
 message COData {
   message EVV {

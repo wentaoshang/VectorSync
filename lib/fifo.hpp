@@ -29,24 +29,29 @@ class FIFONode : public Node {
     this->fifo_data_signal_.connect(cb);
   }
 
+  std::shared_ptr<const Data> PublishFIFOData(const std::string& content);
+
  private:
-  using PerNodeDataStore = std::map<uint64_t, std::shared_ptr<const Data>>;
+  using FIFOQueue =
+      std::map<uint64_t, std::pair<std::shared_ptr<const Data>, uint64_t>>;
 
   void OnNodeData(std::shared_ptr<const Data>);
 
   /**
-   * @brief  Consume data stored in @p store with sequence number in the range
-   *         (begin, end] in FIFO order.
+   * @brief  Try to consume data stored in @p store with sequence number in the
+   *         range (begin, end] in FIFO order.
    *
-   * @param  store  Node data store
+   * @param  queue  Per-node FIFO data queue
    * @param  begin  Seq num of the last consumed data from the store
    * @param  end    Seq num of the last data to be consumed
+   * @return Sequence number of the last consumed data
    */
-  void ConsumeFIFOData(const PerNodeDataStore& store, uint64_t begin,
-                       uint64_t end);
+  uint64_t TryConsumeFIFOData(const FIFOQueue& queue, uint64_t begin,
+                              uint64_t end);
 
+  uint64_t last_fifo_seq_num_;
   std::unordered_map<NodeID, uint64_t> last_consumed_seq_num_;
-  std::unordered_map<NodeID, PerNodeDataStore> fifo_data_store_;
+  std::unordered_map<NodeID, FIFOQueue> fifo_data_queue_;
 
   FIFODataSignal fifo_data_signal_;
 };
