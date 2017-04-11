@@ -28,12 +28,31 @@ static std::pair<TONode::Action, bool> ParseAction(const Block& content) {
   return {{tod_proto.cmd(), tod_proto.num(), tod_proto.param()}, true};
 }
 
-size_t TONode::CountVote(const std::unordered_map<NodeID, NodeID>& votes) {
-  size_t ret = 0;
-  for (const auto& v : votes) {
-    if (v.second == id_) ++ret;
+void TONode::CountVote(TONode::State& state) {
+  std::unordered_map<NodeID, size_t> counts;
+  for (const auto& v : state.votes) {
+    ++counts[v.second];
   }
-  return ret;
+  assert(!counts.empty());
+  auto highest = counts.begin();
+  for (auto iter = std::next(counts.begin()); iter != counts.end(); ++iter) {
+    if (iter->second > highest->second) highest = iter;
+  }
+  if (highest->second >= majority_size_) {
+    // There cannot be two nodes both obtaining majority votes. So the one with
+    // higher-than-majority votes must be the winner.
+    state.concluded = true;
+    state.winner = highest->first;
+  } else if (highest->second + (group_.size() - state.votes.size()) <
+             majority_size_) {
+    // Even the node with highest vote cannot win the majority even if all the
+    // unreceived votes are voting for it. That means no one is ever going to
+    // win the consensus, i.e., there is split vote. In this case, mark the
+    // state as concluded but with empty winner.
+    state.concluded = true;
+  }
+  // Otherwise, keep waiting for more votes to come.
+  return;
 }
 
 void TONode::OnNodeData(std::shared_ptr<const Data> data) {
@@ -51,8 +70,8 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
   }
   const auto& action = p.first;
   auto& state = consensus_state_[action.num];
-  if (state.outcome != nullptr) {
-    VSYNC_LOG_TRACE("Ignore action for concluded number " << action.num);
+  if (state.committed_data != nullptr) {
+    VSYNC_LOG_TRACE("Ignore action for committed number " << action.num);
     return;
   }
 
@@ -68,8 +87,8 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
         return;
       }
 
-      // If we receive a proposal and we have not voted or proposed for the same
-      // number, vote for the received proposal.
+      // If we receive a proposal and we have not voted or proposed for the
+      // same number, vote for the received proposal.
       if (action.param == src && state.votes.find(id_) == state.votes.end()) {
         VSYNC_LOG_TRACE("Cast vote: num=" << action.num
                                           << ", param=" << action.param);
@@ -78,15 +97,23 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
         tod_proto.set_num(action.num);
         tod_proto.set_param(action.param);
         PublishData(tod_proto.SerializeAsString());
-        return;
+        // Record our own vote
+        state.votes[id_] = action.param;
       }
 
+      // If the number of received votes is less than the majority size, no
+      // one can possibly win the consensus now.
       if (state.votes.size() < majority_size_) return;
+
+      // Try to process the votes and reach conclusion
+      CountVote(state);
+      if (!state.concluded) return;
+
+      // If the consensus has concluded and we voted for that number, check if
+      // we are the winner.
       if (last_proposed_number_ == action.num) {
-        size_t count = CountVote(state.votes);
-        if (count >= majority_size_) {
-          VSYNC_LOG_INFO("Won majority vote for number " << action.num
-                                                         << ": nid=" << id_);
+        if (state.winner == id_) {
+          VSYNC_LOG_INFO("We won majority vote for number " << action.num);
           // Publish uncommitted data under action.num
           proto::TOData tod_proto;
           tod_proto.set_cmd(proto::TOData::COMMIT);
@@ -95,19 +122,24 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
           auto d = PublishData(tod_proto.SerializeAsString());
           VSYNC_LOG_TRACE("Commit: num=" << action.num
                                          << ", TOData.Name=" << d->getName());
-          state.outcome = d;
-        } else if (count + (group_.size() - state.votes.size()) <
-                   majority_size_) {
-          // We cannot win the majority even if all the unreceived votes are
-          // voting for us. We should give up current proposal immediately and
-          // try to get a new number.
+          state.committed_data = d;
+        } else {
+          // Someone else wins the vote, or no one wins. Give up current
+          // proposal and try to get a new number.
           MakeNewProposal();
         }
       }
       break;
     }
     case proto::TOData::COMMIT:
-      state.outcome = data;
+      VSYNC_LOG_TRACE("Recv commit message from node "
+                      << src << ": num=" << action.num
+                      << ", param=" << action.param);
+
+      // Accept commit message ASAP, even if we have not seen all the votes.
+      state.concluded = true;
+      state.winner = src;
+      state.committed_data = data;
       if (last_proposed_number_ == action.num) {
         // Someone else committed data for the number we proposed
         MakeNewProposal();
@@ -122,7 +154,8 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
 }
 
 void TONode::MakeNewProposal() {
-  // Vote for ourselves in the next available number (based on our local state)
+  // Vote for ourselves in the next available number (based on our local
+  // state)
   uint64_t next_number;
   if (consensus_state_.empty())
     next_number = 1;
@@ -143,17 +176,31 @@ void TONode::ConsumeTOData() {
   uint64_t prev_number = last_consumed_number_;
   auto iter = consensus_state_.find(last_consumed_number_ + 1);
   while (iter != consensus_state_.end()) {
-    if (iter->first != prev_number + 1) return;   // number must be continuous
-    if (iter->second.outcome == nullptr) return;  // number must be committed
-    if (iter->first == last_proposed_number_) {
-      if (after_commit_cb_) after_commit_cb_(iter->first, iter->second.outcome);
-      last_proposed_number_ = 0;
-      has_pending_data_ = false;
-      uncommitted_content_.clear();
-      after_commit_cb_ = nullptr;
-    } else {
-      to_data_signal_(iter->first, iter->second.outcome);
+    if (iter->first != prev_number + 1) break;  // number must be continuous
+    if (!iter->second.concluded) break;         // number must be concluded
+
+    if (iter->second.committed_data == nullptr) {
+      // Still waiting for committed data to come
+      break;
     }
+
+    if (!iter->second.winner.empty()) {
+      if (iter->first == last_proposed_number_) {
+        assert(iter->second.winner == id_);
+        if (after_commit_cb_)
+          after_commit_cb_(iter->first, iter->second.committed_data);
+        last_proposed_number_ = 0;
+        has_pending_data_ = false;
+        uncommitted_content_.clear();
+        after_commit_cb_ = nullptr;
+      } else {
+        to_data_signal_(iter->first, iter->second.committed_data);
+      }
+    }
+
+    // If the consensus concluded without a winner, there must be a split vote.
+    // Simply skip the number in this case.
+
     prev_number = iter->first;
     ++iter;
   }

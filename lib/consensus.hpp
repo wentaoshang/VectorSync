@@ -33,6 +33,10 @@ class TONode : public Node {
     ConnectDataSignal(std::bind(&TONode::OnNodeData, this, _1));
   }
 
+  /**
+   * @brief  This is a hack. Consensus group should be based on a pre-configured
+   *         view info and view changes should be disabled.
+   */
   void SetConsensusGroup(const std::set<NodeID>& group) {
     if (!group_.empty()) return;
     group_ = group;
@@ -46,12 +50,14 @@ class TONode : public Node {
  private:
   struct State {
     std::unordered_map<NodeID, NodeID> votes;
-    std::shared_ptr<const Data> outcome;
+    bool concluded;
+    NodeID winner;
+    std::shared_ptr<const Data> committed_data;
   };
 
   void OnNodeData(std::shared_ptr<const Data>);
 
-  inline size_t CountVote(const std::unordered_map<NodeID, NodeID>&);
+  void CountVote(State&);
 
   void MakeNewProposal();
 
