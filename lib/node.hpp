@@ -74,6 +74,9 @@ class Node {
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
 
+  void EnableLossyMode() { lossy_mode_ = true; }
+  void DisableLossyMode() { lossy_mode_ = false; }
+
   std::shared_ptr<const Data> PublishData(const std::string& content,
                                           uint32_t type = kUserData);
 
@@ -94,7 +97,6 @@ class Node {
   void ResetState();
 
   inline void SendSyncInterest();
-  void OnSyncInterestTimeout(const Interest& interest, int retry_count);
   inline void SendDataInterest(const Name& prefix, const NodeID& nid,
                                uint64_t seq);
   void OnDataInterestTimeout(const Interest& interest, int retry_count);
@@ -149,6 +151,8 @@ class Node {
   ViewID view_id_;
   ViewInfo view_info_;
   VersionVector vector_clock_;
+
+  bool lossy_mode_ = false;
 
   // Hash table mapping node ID to its node prefix URI and receive window
   std::unordered_map<NodeID, std::pair<std::string, ReceiveWindow>>

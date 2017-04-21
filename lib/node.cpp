@@ -246,6 +246,12 @@ std::shared_ptr<const Data> Node::PublishData(const std::string& content,
                                      << ", vector_clock=" << vector_clock_);
 
   SendSyncInterest();
+  if (lossy_mode_) {
+    scheduler_.scheduleEvent(time::milliseconds(10),
+                             [this] { SendSyncInterest(); });
+    scheduler_.scheduleEvent(time::milliseconds(20),
+                             [this] { SendSyncInterest(); });
+  }
 
   return data;
 }
@@ -297,36 +303,22 @@ void Node::SendSyncInterest() {
 
   PublishVector(n);
 
-  VSYNC_LOG_TRACE("Send: i.name=" << n);
   Interest i(n, kSyncInterestLifetime);
-  face_.expressInterest(
-      i,
-      [](const Interest& inst, const Data& ack) {
-        VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
-      },
-      [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnSyncInterestTimeout, this, _1, 0));
-}
+  i.setMustBeFresh(true);
 
-void Node::OnSyncInterestTimeout(const Interest& interest, int retry_count) {
-  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
-                                     << ", retry_count=" << retry_count);
-  if (retry_count > kInterestMaxRetrans) return;
-  VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
-  Interest i(interest.getName(), kSyncInterestLifetime);
-  // TBD: increase interest lifetime exponentially?
   face_.expressInterest(
       i,
       [](const Interest& inst, const Data& ack) {
         VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
+        // TODO: update sync state with the version vector in the reply
       },
-      [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnSyncInterestTimeout, this, _1, retry_count + 1));
+      [](const Interest&, const lp::Nack&) {}, [](const Interest&) {});
+  VSYNC_LOG_TRACE("Send: i.name=" << n);
 }
 
 void Node::SendSyncReply(const Name& n) {
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
-  data->setFreshnessPeriod(time::milliseconds(50));
+  data->setFreshnessPeriod(kSyncReplyFreshnessPeriod);
   std::string vv_encode;
   EncodeVV(vector_clock_, vv_encode);
   data->setContent(reinterpret_cast<const uint8_t*>(vv_encode.data()),
