@@ -305,6 +305,7 @@ void Node::SendSyncInterest() {
 
   Interest i(n, kSyncInterestLifetime);
   i.setMustBeFresh(true);
+  if (lossy_mode_) i.setInterestLifetime(time::milliseconds(5));
 
   face_.expressInterest(
       i,
@@ -312,8 +313,29 @@ void Node::SendSyncInterest() {
         VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
         // TODO: update sync state with the version vector in the reply
       },
-      [](const Interest&, const lp::Nack&) {}, [](const Interest&) {});
+      [](const Interest&, const lp::Nack&) {},
+      std::bind(&Node::OnSyncInterestTimeout, this, _1, 0));
   VSYNC_LOG_TRACE("Send: i.name=" << n);
+}
+
+void Node::OnSyncInterestTimeout(const Interest& interest, int retry_count) {
+  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
+                                     << ", retry_count=" << retry_count);
+  if (lossy_mode_) return;  // do not handle interest timeout in lossy mode
+  if (retry_count > kInterestMaxRetrans) return;
+
+  VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
+  Interest i(interest.getName(), kSyncInterestLifetime);
+  i.setMustBeFresh(true);
+  // TBD: increase interest lifetime exponentially?
+
+  face_.expressInterest(
+      i,
+      [](const Interest& inst, const Data& ack) {
+        VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
+      },
+      [](const Interest&, const lp::Nack&) {},
+      std::bind(&Node::OnSyncInterestTimeout, this, _1, retry_count + 1));
 }
 
 void Node::SendSyncReply(const Name& n) {

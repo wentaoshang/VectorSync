@@ -97,6 +97,7 @@ class Node {
   void ResetState();
 
   inline void SendSyncInterest();
+  void OnSyncInterestTimeout(const Interest& interest, int retry_count);
   inline void SendDataInterest(const Name& prefix, const NodeID& nid,
                                uint64_t seq);
   void OnDataInterestTimeout(const Interest& interest, int retry_count);
