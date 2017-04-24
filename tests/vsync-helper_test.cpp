@@ -30,22 +30,22 @@ BOOST_AUTO_TEST_CASE(VVEncodeDecode) {
 }
 
 BOOST_AUTO_TEST_CASE(Names) {
-  ViewID vid{1, "A"};
+  NodeID nid = "A";
+  ViewID vid{1, nid};
   VersionVector vv{1, 2, 1, 2};
   ndn::util::Sha256 hasher;
   hasher.update(reinterpret_cast<const uint8_t*>(vv.data()),
                 vv.size() * sizeof(vv[0]));
   auto digest = hasher.toString();
 
-  auto n1 = MakeSyncInterestName(vid, digest);
+  auto n1 = MakeSyncInterestName(nid, vid, digest);
   auto vid1 = ExtractViewID(n1);
   BOOST_TEST(vid1.first == vid.first);
   BOOST_TEST(vid1.second == vid.second);
-  auto d1 = ExtractVectorDigest(n1);
+  auto d1 = ExtractDigest(n1);
   BOOST_TEST(d1 == digest);
 
   uint8_t seq = 55;
-  NodeID nid = "A";
   auto n2 = MakeDataName("/test", nid, seq);
   auto pfx = ExtractNodePrefix(n2);
   BOOST_TEST(pfx == ndn::Name("/test"));

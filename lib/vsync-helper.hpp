@@ -111,20 +111,27 @@ struct VVCompare {
 
 // Helpers for interest processing
 
-inline Name MakeSyncInterestName(const ViewID& vid, const std::string& digest) {
-  // name = /[vsync_prefix]/digest/[view_num]/[leader_id]/[vector_clock_digest]
+inline Name MakeSyncInterestName(const NodeID& nid, const ViewID& vid,
+                                 const std::string& digest) {
+  // name = /[vsync_prefix]/notify/[node_id]/[view_num]/[leader_id]/[digest]
   Name n(kSyncPrefix);
-  n.append("digest").appendNumber(vid.first).append(vid.second).append(digest);
+  n.append("notify")
+      .append(nid)
+      .appendNumber(vid.first)
+      .append(vid.second)
+      .append(digest);
   return n;
 }
 
-inline Name MakeVectorInterestName(const Name& sync_interest_name) {
-  // name = /[vsync_prefix]/vector/[view_num]/[leader_id]/[vector_clock_digest]
-  Name n(kSyncPrefix);
-  n.append("vector")
-      .append(sync_interest_name.get(-3))
-      .append(sync_interest_name.get(-2))
-      .append(sync_interest_name.get(-1));
+inline Name MakeStateName(const Name& prefix, const NodeID& nid,
+                          const ViewID& vid, const std::string& digest) {
+  // name = /[node_prefix]/[node_id]/state/[view_num]/[leader_id]/[digest]
+  Name n(prefix);
+  n.append(nid)
+      .append("state")
+      .appendNumber(vid.first)
+      .append(vid.second)
+      .append(digest);
   return n;
 }
 
@@ -155,9 +162,7 @@ inline ViewID ExtractViewID(const Name& n) {
   return {view_num, leader_id};
 }
 
-inline std::string ExtractVectorDigest(const Name& n) {
-  return n.get(-1).toUri();
-}
+inline std::string ExtractDigest(const Name& n) { return n.get(-1).toUri(); }
 
 // Helpers for data processing
 

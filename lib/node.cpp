@@ -188,7 +188,7 @@ void Node::ProcessViewInfo(
     leader_election_event_.cancel();
 
     // Process pending sync interest
-    SendVectorInterest(pending_sync_interest->getName());
+    SendStateInterest(pending_sync_interest->getName());
   } else if (is_leader_ &&
              ((vid.first < view_id_.first && vid.second != id_) ||
               (vid.first == view_id_.first && vid.second < id_))) {
@@ -206,7 +206,7 @@ void Node::ProcessViewInfo(
     ResetState();
 
     // Process pending sync interest
-    SendVectorInterest(pending_sync_interest->getName());
+    SendStateInterest(pending_sync_interest->getName());
   }
 }
 
@@ -299,9 +299,9 @@ void Node::SendSyncInterest() {
                 vector_clock_.size() * sizeof(vector_clock_[0]));
   auto digest = hasher.toString();
 
-  auto n = MakeSyncInterestName(view_id_, digest);
+  auto n = MakeSyncInterestName(id_, view_id_, digest);
 
-  PublishVector(n);
+  PublishState(digest);
 
   Interest i(n, kSyncInterestLifetime);
   i.setMustBeFresh(true);
@@ -333,22 +333,21 @@ void Node::OnSyncInterest(const Interest& interest) {
   VSYNC_LOG_TRACE("Recv: i.name=" << n);
 
   // Check sync interest name size
-  if (n.size() != kSyncPrefix.size() + 4) {
+  if (n.size() < kSyncPrefix.size() + 4) {
     VSYNC_LOG_WARN("Invalid sync interest name: " << n);
     return;
   }
 
   auto vi = ExtractViewID(n);
-  auto digest = ExtractVectorDigest(n);
 
-  auto dispatcher = n.get(-4).toUri();
+  auto dispatcher = n.get(kSyncPrefix.size()).toUri();
   if (dispatcher == "vinfo") {
     auto iter = data_store_.find(n);
     if (iter != data_store_.end()) {
       VSYNC_LOG_TRACE("Send: d.name=" << iter->second->getName());
       face_.put(*iter->second);
     }
-  } else if (dispatcher == "digest") {
+  } else if (dispatcher == "notify") {
     // Generate sync reply to notify receipt of sync interest
     SendSyncReply(n);
 
@@ -358,31 +357,41 @@ void Node::OnSyncInterest(const Interest& interest) {
       return;
     }
 
-    SendVectorInterest(n);
-  } else if (dispatcher == "vector") {
-    auto iter = data_store_.find(n);
-    if (iter != data_store_.end()) {
-      VSYNC_LOG_TRACE("Send: d.name=" << iter->second->getName());
-      face_.put(*iter->second);
-    }
+    SendStateInterest(n);
   } else {
     VSYNC_LOG_WARN("Unknown dispatch tag in interest name: " << dispatcher);
   }
 }
 
-void Node::SendVectorInterest(const Name& sync_interest_name) {
-  auto n = MakeVectorInterestName(sync_interest_name);
+void Node::SendStateInterest(const Name& sync_interest_name) {
+  auto nid = sync_interest_name.get(-4).toUri();
+  auto vid = ExtractViewID(sync_interest_name);
+  auto digest = ExtractDigest(sync_interest_name);
+
+  auto p_idx = view_info_.GetIndexByID(nid);
+  if (!p_idx.second) {
+    VSYNC_LOG_INFO("Unknown node id in sync interest name: " << nid);
+    return;
+  }
+  auto p_pfx = view_info_.GetPrefixByIndex(p_idx.first);
+  if (!p_pfx.second) {
+    VSYNC_LOG_ERROR("Cannot get prefix for node id " << nid);
+    return;
+  }
+
+  auto n = MakeStateName(p_pfx.first, nid, vid, digest);
+
   // Ignore sync interest if the vector data has been fetched before
   if (data_store_.find(n) != data_store_.end()) return;
 
   VSYNC_LOG_TRACE("Send: i.name=" << n);
   Interest i(n, kVectorInterestLifetime);
-  face_.expressInterest(i, std::bind(&Node::ProcessVector, this, _2),
+  face_.expressInterest(i, std::bind(&Node::ProcessState, this, _2),
                         [](const Interest&, const lp::Nack&) {},
-                        std::bind(&Node::OnVectorInterestTimeout, this, _1, 0));
+                        std::bind(&Node::OnStateInterestTimeout, this, _1, 0));
 }
 
-void Node::OnVectorInterestTimeout(const Interest& interest, int retry_count) {
+void Node::OnStateInterestTimeout(const Interest& interest, int retry_count) {
   VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
                                      << ", retry_count=" << retry_count);
   if (retry_count > kInterestMaxRetrans) return;
@@ -390,13 +399,13 @@ void Node::OnVectorInterestTimeout(const Interest& interest, int retry_count) {
   Interest i(interest.getName(), kVectorInterestLifetime);
   // TBD: increase interest lifetime exponentially?
   face_.expressInterest(
-      i, std::bind(&Node::ProcessVector, this, _2),
+      i, std::bind(&Node::ProcessState, this, _2),
       [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnVectorInterestTimeout, this, _1, retry_count + 1));
+      std::bind(&Node::OnStateInterestTimeout, this, _1, retry_count + 1));
 }
 
-void Node::PublishVector(const Name& sync_interest_name) {
-  auto n = MakeVectorInterestName(sync_interest_name);
+void Node::PublishState(const std::string& digest) {
+  auto n = MakeStateName(prefix_, id_, view_id_, digest);
   VSYNC_LOG_TRACE("Publish: d.name=" << n
                                      << ", vector_clock=" << vector_clock_);
 
@@ -413,7 +422,7 @@ void Node::PublishVector(const Name& sync_interest_name) {
   // TODO: implement garbage collection to purge old vector data
 }
 
-void Node::ProcessVector(const Data& data) {
+void Node::ProcessState(const Data& data) {
   const auto& n = data.getName();
   VSYNC_LOG_TRACE("Recv: d.name=" << n.toUri());
 

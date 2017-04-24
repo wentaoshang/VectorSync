@@ -108,10 +108,10 @@ class Node {
   void OnDataInterest(const Interest& interest);
   void OnRemoteData(const Data& data);
 
-  void SendVectorInterest(const Name& sync_interest_name);
-  void OnVectorInterestTimeout(const Interest& interest, int retry_count);
-  void PublishVector(const Name& sync_interest_name);
-  void ProcessVector(const Data& data);
+  void SendStateInterest(const Name& sync_interest_name);
+  void OnStateInterestTimeout(const Interest& interest, int retry_count);
+  void PublishState(const std::string& digest);
+  void ProcessState(const Data& data);
 
   /**
    * @brief Adds the sequence number @p seq of the received data into the
