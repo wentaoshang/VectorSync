@@ -98,21 +98,19 @@ class Node {
 
   inline void SendSyncInterest();
   void OnSyncInterestTimeout(const Interest& interest, int retry_count);
+  void SendDataInterest(const Name& sync_interest_name);
   inline void SendDataInterest(const Name& prefix, const NodeID& nid,
                                uint64_t seq);
   void OnDataInterestTimeout(const Interest& interest, int retry_count);
   inline void SendSyncReply(const Name& n);
   inline void PublishHeartbeat();
-  inline void ProcessHeartbeat(const Block& content, const NodeID& nid);
+  inline void ProcessHeartbeat(const ViewID& vid, const NodeID& nid);
 
   void OnSyncInterest(const Interest& interest);
   void OnDataInterest(const Interest& interest);
   void OnRemoteData(const Data& data);
 
-  void SendStateInterest(const Name& sync_interest_name);
-  void OnStateInterestTimeout(const Interest& interest, int retry_count);
-  void PublishState(const std::string& digest);
-  void ProcessState(const Data& data);
+  void ProcessState(const ViewID& vid, const VersionVector& vv);
 
   /**
    * @brief Adds the sequence number @p seq of the received data into the
@@ -138,7 +136,7 @@ class Node {
   inline void ProcessLeaderElectionTimeout();
 
   void PublishNodeSnapshot();
-  void ProcessNodeSnapshot(const Block& content, const NodeID& nid);
+  void ProcessNodeSnapshot(const std::string& content, const NodeID& nid);
   void PublishGroupSnapshot();
 
   Face& face_;

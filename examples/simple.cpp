@@ -29,15 +29,12 @@ class SimpleNode {
 
  private:
   void OnData(std::shared_ptr<const Data> data) {
-    const auto& content = data->getContent();
-    std::cout << "Upcall OnData: Name=" << data->getName() << ", Content=\""
-              << std::string(reinterpret_cast<const char*>(content.value()),
-                             content.value_size())
-              << '"' << std::endl;
+    std::cout << "OnData: Name=" << data->getName() << std::endl;
   }
 
   void PublishData() {
-    node_.PublishData("Hello from " + node_.GetNodeID());
+    auto data = node_.PublishData("Hello from " + node_.GetNodeID());
+    std::cout << "PublishData: Name=" << data->getName() << std::endl;
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
                              [this] { PublishData(); });
   }

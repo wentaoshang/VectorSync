@@ -188,7 +188,7 @@ void Node::ProcessViewInfo(
     leader_election_event_.cancel();
 
     // Process pending sync interest
-    SendStateInterest(pending_sync_interest->getName());
+    SendDataInterest(pending_sync_interest->getName());
   } else if (is_leader_ &&
              ((vid.first < view_id_.first && vid.second != id_) ||
               (vid.first == view_id_.first && vid.second < id_))) {
@@ -206,7 +206,7 @@ void Node::ProcessViewInfo(
     ResetState();
 
     // Process pending sync interest
-    SendStateInterest(pending_sync_interest->getName());
+    SendDataInterest(pending_sync_interest->getName());
   }
 }
 
@@ -234,8 +234,15 @@ std::shared_ptr<const Data> Node::PublishData(const std::string& content,
   auto n = MakeDataName(prefix_, id_, seq);
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(time::seconds(3600));
-  data->setContent(reinterpret_cast<const uint8_t*>(content.data()),
-                   content.size());
+
+  proto::Content content_proto;
+  content_proto.set_view_num(view_id_.first);
+  content_proto.set_leader_id(view_id_.second);
+  EncodeVV(vector_clock_, content_proto.mutable_vv());
+  content_proto.set_content(content);
+  const std::string& content_proto_str = content_proto.SerializeAsString();
+  data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
+                   content_proto_str.size());
   data->setContentType(type);
   key_chain_.sign(*data, signingWithSha256());
 
@@ -254,6 +261,24 @@ std::shared_ptr<const Data> Node::PublishData(const std::string& content,
   }
 
   return data;
+}
+
+void Node::SendDataInterest(const Name& sync_interest_name) {
+  auto nid = sync_interest_name.get(-4).toUri();
+  uint64_t seq = ExtractSequenceNumber(sync_interest_name);
+
+  auto p_idx = view_info_.GetIndexByID(nid);
+  if (!p_idx.second) {
+    VSYNC_LOG_INFO("Unknown node id in sync interest name: " << nid);
+    return;
+  }
+  auto p_pfx = view_info_.GetPrefixByIndex(p_idx.first);
+  if (!p_pfx.second) {
+    VSYNC_LOG_ERROR("Cannot get prefix for node id " << nid);
+    return;
+  }
+
+  SendDataInterest(p_pfx.first, nid, seq);
 }
 
 void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
@@ -294,14 +319,8 @@ void Node::OnDataInterest(const Interest& interest) {
 }
 
 void Node::SendSyncInterest() {
-  util::Sha256 hasher;
-  hasher.update(reinterpret_cast<const uint8_t*>(vector_clock_.data()),
-                vector_clock_.size() * sizeof(vector_clock_[0]));
-  auto digest = hasher.toString();
-
-  auto n = MakeSyncInterestName(id_, view_id_, digest);
-
-  PublishState(digest);
+  uint64_t seq = vector_clock_[idx_];
+  auto n = MakeSyncInterestName(id_, view_id_, seq);
 
   Interest i(n, kSyncInterestLifetime);
   i.setMustBeFresh(true);
@@ -379,90 +398,18 @@ void Node::OnSyncInterest(const Interest& interest) {
       return;
     }
 
-    SendStateInterest(n);
+    SendDataInterest(n);
   } else {
     VSYNC_LOG_WARN("Unknown dispatch tag in interest name: " << dispatcher);
   }
 }
 
-void Node::SendStateInterest(const Name& sync_interest_name) {
-  auto nid = sync_interest_name.get(-4).toUri();
-  auto vid = ExtractViewID(sync_interest_name);
-  auto digest = ExtractDigest(sync_interest_name);
-
-  auto p_idx = view_info_.GetIndexByID(nid);
-  if (!p_idx.second) {
-    VSYNC_LOG_INFO("Unknown node id in sync interest name: " << nid);
+void Node::ProcessState(const ViewID& vid, const VersionVector& vv) {
+  // Check view id
+  if (vid != view_id_) {
+    VSYNC_LOG_INFO("Ignore version vector from different view: " << vid);
     return;
   }
-  auto p_pfx = view_info_.GetPrefixByIndex(p_idx.first);
-  if (!p_pfx.second) {
-    VSYNC_LOG_ERROR("Cannot get prefix for node id " << nid);
-    return;
-  }
-
-  auto n = MakeStateName(p_pfx.first, nid, vid, digest);
-
-  // Ignore sync interest if the vector data has been fetched before
-  if (data_store_.find(n) != data_store_.end()) return;
-
-  VSYNC_LOG_TRACE("Send: i.name=" << n);
-  Interest i(n, kVectorInterestLifetime);
-  face_.expressInterest(i, std::bind(&Node::ProcessState, this, _2),
-                        [](const Interest&, const lp::Nack&) {},
-                        std::bind(&Node::OnStateInterestTimeout, this, _1, 0));
-}
-
-void Node::OnStateInterestTimeout(const Interest& interest, int retry_count) {
-  VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
-                                     << ", retry_count=" << retry_count);
-  if (retry_count > kInterestMaxRetrans) return;
-  VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
-  Interest i(interest.getName(), kVectorInterestLifetime);
-  // TBD: increase interest lifetime exponentially?
-  face_.expressInterest(
-      i, std::bind(&Node::ProcessState, this, _2),
-      [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnStateInterestTimeout, this, _1, retry_count + 1));
-}
-
-void Node::PublishState(const std::string& digest) {
-  auto n = MakeStateName(prefix_, id_, view_id_, digest);
-  VSYNC_LOG_TRACE("Publish: d.name=" << n
-                                     << ", vector_clock=" << vector_clock_);
-
-  std::shared_ptr<Data> data = std::make_shared<Data>(n);
-  data->setFreshnessPeriod(time::seconds(3600));
-  std::string vv_encode;
-  EncodeVV(vector_clock_, vv_encode);
-  data->setContent(reinterpret_cast<const uint8_t*>(vv_encode.data()),
-                   vv_encode.size());
-  data->setContentType(kVectorClock);
-  key_chain_.sign(*data, signingWithSha256());
-
-  data_store_[n] = data;
-  // TODO: implement garbage collection to purge old vector data
-}
-
-void Node::ProcessState(const Data& data) {
-  const auto& n = data.getName();
-  VSYNC_LOG_TRACE("Recv: d.name=" << n.toUri());
-
-  if (data.getContentType() != kVectorClock) {
-    VSYNC_LOG_WARN("Wrong content type for vector data"
-                   << data.getContentType());
-    return;
-  }
-
-  auto vi = ExtractViewID(n);
-  if (vi != view_id_) {
-    VSYNC_LOG_INFO("Ignore version vector from different view: " << vi);
-    return;
-  }
-
-  // Parse version vector
-  const auto& content = data.getContent();
-  auto vv = DecodeVV(content.value(), content.value_size());
 
   // Detect invalid version vector
   if (vv.size() != vector_clock_.size()) {
@@ -485,6 +432,7 @@ void Node::ProcessState(const Data& data) {
   VSYNC_LOG_INFO("Update: view_id=" << view_id_
                                     << ", vector_clock=" << vector_clock_);
 
+  // Fetch missing data
   for (std::size_t i = 0; i != vv.size(); ++i) {
     if (i == idx_) continue;
 
@@ -496,14 +444,14 @@ void Node::ProcessState(const Data& data) {
     if (!pfx.second)
       throw Error("Cannot get node prefix for index " + std::to_string(i));
 
+    // Compare old_vv[i] with vv[i] before calculating "old_vv[i] + 1" to avoid
+    // unsigned integer overflow (not possible in practice since we use 64-bit)
     if (old_vv[i] < vv[i]) {
       for (uint64_t seq = old_vv[i] + 1; seq <= vv[i]; ++seq) {
         SendDataInterest(pfx.first, nid.first, seq);
       }
     }
   }
-
-  // TBD: send sync interest if the vector has changed?
 }
 
 void Node::OnRemoteData(const Data& data) {
@@ -531,16 +479,27 @@ void Node::OnRemoteData(const Data& data) {
   // Store a local copy of received data
   data_store_[n] = data.shared_from_this();
 
+  const auto& content = data.getContent();
+  proto::Content content_proto;
+  if (!content_proto.ParseFromArray(content.value(), content.value_size())) {
+    VSYNC_LOG_WARN("Invalid data content format: nid=" << nid);
+    return;
+  }
+
+  ViewID vid = {content_proto.view_num(), content_proto.leader_id()};
+  auto vv = DecodeVV(content_proto.vv());
+  ProcessState(vid, vv);
+
   auto content_type = data.getContentType();
   switch (content_type) {
     case kHeartbeat:
-      ProcessHeartbeat(data.getContent(), nid);
+      ProcessHeartbeat(vid, nid);
       break;
     case kUserData:
       data_signal_(data.shared_from_this());
       break;
     case kNodeSnapshot:
-      ProcessNodeSnapshot(data.getContent(), nid);
+      ProcessNodeSnapshot(content_proto.content(), nid);
       break;
     default:
       VSYNC_LOG_WARN("Unknown content type in remote data: " << content_type);
@@ -578,24 +537,13 @@ void Node::PublishHeartbeat() {
           time::milliseconds(heartbeat_random_delay_(rengine_)),
       [this] { PublishHeartbeat(); });
 
-  proto::Heartbeat hb_proto;
-  hb_proto.set_view_num(view_id_.first);
-  hb_proto.set_leader_id(view_id_.second);
-  PublishData(hb_proto.SerializeAsString(), kHeartbeat);
+  PublishData("HELLO", kHeartbeat);
 }
 
-void Node::ProcessHeartbeat(const Block& content, const NodeID& nid) {
-  proto::Heartbeat hb_proto;
-  if (!hb_proto.ParseFromArray(content.value(), content.value_size())) {
-    VSYNC_LOG_WARN("Invalid heartbeat content format: nid=" << nid);
-    return;
-  }
-
-  if (hb_proto.view_num() != view_id_.first ||
-      hb_proto.leader_id() != view_id_.second) {
-    VSYNC_LOG_INFO("Ignore heartbeat for non-current view id {"
-                   << hb_proto.view_num() << "," << hb_proto.leader_id()
-                   << "} from nid=" << nid);
+void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
+  if (vid != view_id_) {
+    VSYNC_LOG_INFO("Ignore heartbeat for non-current view id "
+                   << vid << " from nid=" << nid);
     return;
   }
 
@@ -605,9 +553,8 @@ void Node::ProcessHeartbeat(const Block& content, const NodeID& nid) {
     return;
   }
 
-  VSYNC_LOG_INFO("Recv: HEARTBEAT, nid="
-                 << nid << " [index=" << index.first << "], view_id={"
-                 << hb_proto.view_num() << "," << hb_proto.leader_id() << '}');
+  VSYNC_LOG_INFO("Recv: HEARTBEAT, nid=" << nid << " [index=" << index.first
+                                         << "], view_id=" << vid);
   last_heartbeat_[index.first] = time::steady_clock::now();
 }
 
@@ -685,9 +632,9 @@ void Node::PublishNodeSnapshot() {
   PublishData(ss_proto.SerializeAsString(), kNodeSnapshot);
 }
 
-void Node::ProcessNodeSnapshot(const Block& content, const NodeID& nid) {
+void Node::ProcessNodeSnapshot(const std::string& content, const NodeID& nid) {
   proto::Snapshot ss_proto;
-  if (!ss_proto.ParseFromArray(content.value(), content.value_size())) {
+  if (!ss_proto.ParseFromArray(content.data(), content.size())) {
     VSYNC_LOG_WARN("Invalid node snapshot content format: nid=" << nid);
     return;
   }

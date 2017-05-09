@@ -112,26 +112,14 @@ struct VVCompare {
 // Helpers for interest processing
 
 inline Name MakeSyncInterestName(const NodeID& nid, const ViewID& vid,
-                                 const std::string& digest) {
-  // name = /[vsync_prefix]/notify/[node_id]/[view_num]/[leader_id]/[digest]
+                                 uint64_t seq) {
+  // name = /[vsync_prefix]/notify/[node_id]/[view_num]/[leader_id]/[seq_num]
   Name n(kSyncPrefix);
   n.append("notify")
       .append(nid)
       .appendNumber(vid.first)
       .append(vid.second)
-      .append(digest);
-  return n;
-}
-
-inline Name MakeStateName(const Name& prefix, const NodeID& nid,
-                          const ViewID& vid, const std::string& digest) {
-  // name = /[node_prefix]/[node_id]/state/[view_num]/[leader_id]/[digest]
-  Name n(prefix);
-  n.append(nid)
-      .append("state")
-      .appendNumber(vid.first)
-      .append(vid.second)
-      .append(digest);
+      .appendNumber(seq);
   return n;
 }
 
@@ -161,8 +149,6 @@ inline ViewID ExtractViewID(const Name& n) {
   std::string leader_id = n.get(-2).toUri();
   return {view_num, leader_id};
 }
-
-inline std::string ExtractDigest(const Name& n) { return n.get(-1).toUri(); }
 
 // Helpers for data processing
 

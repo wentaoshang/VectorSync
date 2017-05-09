@@ -32,8 +32,6 @@ static const int kInterestMaxRetrans = 5;
 
 static constexpr time::milliseconds kSyncInterestLifetime =
     time::milliseconds(50);
-static constexpr time::milliseconds kVectorInterestLifetime =
-    time::milliseconds(50);
 static constexpr time::milliseconds kViewInfoInterestLifetime =
     time::milliseconds(50);
 static constexpr time::milliseconds kDataInterestLifetime =
