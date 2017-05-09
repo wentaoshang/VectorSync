@@ -165,6 +165,7 @@ class Node {
   std::vector<bool> node_snapshot_bitmap_;
 
   std::mt19937 rengine_;
+  std::uniform_int_distribution<> data_interest_random_delay_;
   std::uniform_int_distribution<> heartbeat_random_delay_;
   std::uniform_int_distribution<> leader_election_random_delay_;
 

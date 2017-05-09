@@ -23,6 +23,8 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       view_id_({1, nid}),
       view_info_({{nid, prefix}}),
       rengine_(seed),
+      data_interest_random_delay_(
+          0, time::milliseconds(kDataInterestMaxDelay).count()),
       heartbeat_random_delay_(10,
                               time::milliseconds(kHeartbeatMaxDelay).count()),
       leader_election_random_delay_(
@@ -398,7 +400,11 @@ void Node::OnSyncInterest(const Interest& interest) {
       return;
     }
 
-    SendDataInterest(n);
+    // Add a random delay before responding to sync interest
+    scheduler_.scheduleEvent(
+        time::milliseconds(data_interest_random_delay_(rengine_)),
+        [this, n] { SendDataInterest(n); });
+
   } else {
     VSYNC_LOG_WARN("Unknown dispatch tag in interest name: " << dispatcher);
   }

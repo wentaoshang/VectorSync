@@ -40,6 +40,9 @@ static constexpr time::milliseconds kDataInterestLifetime =
 static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
     time::milliseconds(5);
 
+static constexpr time::milliseconds kDataInterestMaxDelay =
+    time::milliseconds(50);
+
 static constexpr time::seconds kHeartbeatInterval = time::seconds(4);
 static constexpr time::milliseconds kHeartbeatMaxDelay =
     time::milliseconds(100);
