@@ -445,7 +445,8 @@ void Node::OnSyncInterest(const Interest& interest) {
   }
 }
 
-void Node::ProcessState(const ViewID& vid, const VersionVector& vv) {
+void Node::ProcessState(const NodeID& nid, uint64_t seq, const ViewID& vid,
+                        const VersionVector& vv) {
   // Check view id
   if (vid != view_id_) {
     VSYNC_LOG_INFO("Ignore version vector from different view: " << vid);
@@ -477,19 +478,26 @@ void Node::ProcessState(const ViewID& vid, const VersionVector& vv) {
   for (std::size_t i = 0; i != vv.size(); ++i) {
     if (i == idx_) continue;
 
-    auto nid = view_info_.GetIDByIndex(i);
-    if (!nid.second)
-      throw Error("Cannot get node ID for index " + std::to_string(i));
-
-    auto pfx = view_info_.GetPrefixByIndex(i);
-    if (!pfx.second)
-      throw Error("Cannot get node prefix for index " + std::to_string(i));
-
     // Compare old_vv[i] with vv[i] before calculating "old_vv[i] + 1" to avoid
     // unsigned integer overflow (not possible in practice since we use 64-bit)
     if (old_vv[i] < vv[i]) {
-      for (uint64_t seq = old_vv[i] + 1; seq <= vv[i]; ++seq) {
-        SendDataInterest(pfx.first, nid.first, seq);
+      auto nid_pair = view_info_.GetIDByIndex(i);
+      if (!nid_pair.second)
+        throw Error("Cannot get node ID for index " + std::to_string(i));
+
+      auto pfx_pair = view_info_.GetPrefixByIndex(i);
+      if (!pfx_pair.second)
+        throw Error("Cannot get node prefix for index " + std::to_string(i));
+
+      if (nid == nid_pair.first) {
+        if (vv[i] != seq) {
+          throw Error("Node " + nid + " did not announce latest data: " +
+                      std::to_string(vv[i]));
+        }
+      } else {
+        for (uint64_t s = old_vv[i] + 1; s <= vv[i]; ++s) {
+          SendDataInterest(pfx_pair.first, nid_pair.first, s);
+        }
       }
     }
   }
@@ -529,7 +537,7 @@ void Node::OnRemoteData(const Data& data) {
 
   ViewID vid = {content_proto.view_num(), content_proto.leader_id()};
   auto vv = DecodeVV(content_proto.vv());
-  ProcessState(vid, vv);
+  ProcessState(nid, seq, vid, vv);
 
   auto content_type = data.getContentType();
   switch (content_type) {

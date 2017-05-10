@@ -117,7 +117,8 @@ class Node {
   void OnDataInterest(const Interest& interest);
   void OnRemoteData(const Data& data);
 
-  void ProcessState(const ViewID& vid, const VersionVector& vv);
+  void ProcessState(const NodeID& nid, uint64_t seq, const ViewID& vid,
+                    const VersionVector& vv);
 
   /**
    * @brief Adds the sequence number @p seq of the received data into the
