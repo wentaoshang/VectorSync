@@ -31,7 +31,9 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
           100, time::milliseconds(kLeaderElectionTimeoutMax).count()),
       heartbeat_event_(scheduler_),
       healthcheck_event_(scheduler_),
-      leader_election_event_(scheduler_) {
+      leader_election_event_(scheduler_) {}
+
+void Node::Start() {
   face_.setInterestFilter(
       kSyncPrefix, std::bind(&Node::OnSyncInterest, this, _2),
       [this](const Name&, const std::string& reason) {
@@ -39,7 +41,7 @@ Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
       });
 
   face_.setInterestFilter(
-      Name(prefix).append(id_), std::bind(&Node::OnDataInterest, this, _2),
+      Name(prefix_).append(id_), std::bind(&Node::OnDataInterest, this, _2),
       [this](const Name&, const std::string& reason) {
         throw Error("Failed to register data prefix: " + reason);
       });

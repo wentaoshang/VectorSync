@@ -68,6 +68,13 @@ class Node {
   Node(Face& face, Scheduler& scheduler, KeyChain& key_chain, const NodeID& nid,
        const Name& prefix, uint32_t seed);
 
+  void SetViewInfo(const ViewID& vid, const ViewInfo& vinfo) {
+    view_id_ = vid;
+    view_info_ = vinfo;
+  }
+
+  void Start();
+
   const NodeID& GetNodeID() const { return id_; }
 
   NodeIndex GetNodeIndex() const { return idx_; }

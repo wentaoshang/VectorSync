@@ -31,11 +31,11 @@ static const Name kSyncPrefix = Name("/ndn/broadcast/vsync");
 static const int kInterestMaxRetrans = 5;
 
 static constexpr time::milliseconds kSyncInterestLifetime =
-    time::milliseconds(50);
+    time::milliseconds(1000);
 static constexpr time::milliseconds kViewInfoInterestLifetime =
-    time::milliseconds(50);
+    time::milliseconds(1000);
 static constexpr time::milliseconds kDataInterestLifetime =
-    time::milliseconds(50);
+    time::milliseconds(1000);
 
 static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
     time::milliseconds(5);
