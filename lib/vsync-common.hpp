@@ -28,35 +28,6 @@ using NodeIndex = std::size_t;
 
 static const Name kSyncPrefix = Name("/ndn/broadcast/vsync");
 
-static const int kInterestMaxRetrans = 5;
-
-static constexpr time::milliseconds kSyncInterestLifetime =
-    time::milliseconds(1000);
-static constexpr time::milliseconds kViewInfoInterestLifetime =
-    time::milliseconds(1000);
-static constexpr time::milliseconds kDataInterestLifetime =
-    time::milliseconds(1000);
-
-static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
-    time::milliseconds(5);
-
-static constexpr time::milliseconds kDataInterestMaxDelay =
-    time::milliseconds(50);
-
-static constexpr time::seconds kHeartbeatInterval = time::seconds(4);
-static constexpr time::milliseconds kHeartbeatMaxDelay =
-    time::milliseconds(100);
-static constexpr time::seconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
-static constexpr time::seconds kHealthcheckInterval = kHeartbeatInterval;
-// Leader election timeout MUST be smaller than healthcheck interval
-static constexpr time::seconds kLeaderElectionTimeoutMax = time::seconds(3);
-static_assert(kLeaderElectionTimeoutMax < kHealthcheckInterval,
-              "Leader election timeout must be less than healthcheck interval");
-
-// Leader will only perform view change when the number of dead members exceeds
-// kViewChangeThreadhold.
-static const size_t kViewChangeThreshold = 1;
-
 }  // namespace vsync
 }  // namespace ndn
 
