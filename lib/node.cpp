@@ -714,12 +714,17 @@ void Node::ProcessNodeSnapshot(const std::string& content, const NodeID& nid) {
     }
     auto& s = snapshot_[entry.nid()];
     if (s < entry.seq()) s = entry.seq();
-    // Check receive window and fetch missing data
-    UpdateReceiveWindow(entry.prefix(), entry.nid(), entry.seq());
-    // UpdateReceiveWindow assumes entry.seq() has been received and will
-    // request data up to entry.seq() - 1. So need to send another interest to
-    // fetch entry.seq()
-    SendDataInterest(entry.prefix(), entry.nid(), entry.seq());
+
+    // Check receive window and fetch the latest missing data
+    // After receiving the latest data, VectorSync will fetch
+    // all previous missing data automatically
+    // Do not update receive window state right now
+    if (entry.seq() > 0) {
+      const auto iter = recv_window_.find(entry.nid());
+      if (iter == recv_window_.end() ||
+          iter->second.second.UpperBound() < entry.seq())
+        SendDataInterest(entry.prefix(), entry.nid(), entry.seq());
+    }
   }
 
   node_snapshot_bitmap_[index.first] = true;
