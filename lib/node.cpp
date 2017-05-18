@@ -17,18 +17,21 @@ namespace vsync {
 
 static const int kInterestMaxRetrans = 5;
 
-static constexpr time::milliseconds kSyncInterestLifetime =
-    time::milliseconds(1000);
-static constexpr time::milliseconds kViewInfoInterestLifetime =
-    time::milliseconds(1000);
-static constexpr time::milliseconds kDataInterestLifetime =
-    time::milliseconds(1000);
+static time::milliseconds kSyncInterestLifetime = time::milliseconds(1000);
+static time::milliseconds kViewInfoInterestLifetime = time::milliseconds(1000);
+static time::milliseconds kDataInterestLifetime = time::milliseconds(1000);
+
+void SetInterestLifetime(const time::milliseconds sync_interest_lifetime,
+                         const time::milliseconds data_interest_lifetime) {
+  kSyncInterestLifetime = sync_interest_lifetime;
+  kViewInfoInterestLifetime = kDataInterestLifetime = data_interest_lifetime;
+}
 
 static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
     time::milliseconds(5);
 
 static constexpr time::milliseconds kDataInterestMaxDelay =
-    time::milliseconds(50);
+    time::milliseconds(20);
 
 static constexpr time::seconds kHeartbeatInterval = time::seconds(60);
 static constexpr time::milliseconds kHeartbeatMaxDelay =
