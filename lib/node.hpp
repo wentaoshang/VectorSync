@@ -23,6 +23,9 @@ namespace vsync {
 void SetInterestLifetime(const time::milliseconds sync_interest_lifetime,
                          const time::milliseconds data_interest_lifetime);
 
+void SetHeartbeatInterval(const time::seconds heartbeat_interval,
+                          const time::seconds leader_election_timeout);
+
 class Node {
  public:
   using DataSignal = util::Signal<Node, std::shared_ptr<const Data>>;

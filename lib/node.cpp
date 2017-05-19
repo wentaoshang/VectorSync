@@ -1,6 +1,7 @@
 /* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #include <random>
+#include <stdexcept>
 
 #include <ndn-cxx/util/digest.hpp>
 
@@ -33,15 +34,22 @@ static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
 static constexpr time::milliseconds kDataInterestMaxDelay =
     time::milliseconds(20);
 
-static constexpr time::seconds kHeartbeatInterval = time::seconds(60);
+static time::seconds kHeartbeatInterval = time::seconds(60);
 static constexpr time::milliseconds kHeartbeatMaxDelay =
     time::milliseconds(100);
-static constexpr time::seconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
-static constexpr time::seconds kHealthcheckInterval = kHeartbeatInterval;
+static time::seconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
+static time::seconds kHealthcheckInterval = kHeartbeatInterval;
 // Leader election timeout MUST be smaller than healthcheck interval
-static constexpr time::seconds kLeaderElectionTimeoutMax = time::seconds(3);
-static_assert(kLeaderElectionTimeoutMax < kHealthcheckInterval,
-              "Leader election timeout must be less than healthcheck interval");
+static time::seconds kLeaderElectionTimeoutMax = time::seconds(3);
+
+void SetHeartbeatInterval(const time::seconds heartbeat_interval,
+                          const time::seconds leader_election_timeout) {
+  if (heartbeat_interval <= leader_election_timeout)
+    throw std::invalid_argument("Invalid heartbeat interval");
+  kHeartbeatInterval = kHealthcheckInterval = heartbeat_interval;
+  kHeartbeatTimeout = 3 * kHeartbeatInterval;
+  kLeaderElectionTimeoutMax = leader_election_timeout;
+}
 
 // Leader will only perform view change when the number of dead members exceeds
 // kViewChangeThreadhold.
