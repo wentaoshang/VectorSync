@@ -292,6 +292,12 @@ std::shared_ptr<const Data> Node::PublishData(const std::string& content,
                                      << ", view_id=" << view_id_
                                      << ", vector_clock=" << vector_clock_);
 
+  // (Re)schedule next heartbeat event before publishing data
+  heartbeat_event_ = scheduler_.scheduleEvent(
+      kHeartbeatInterval +
+          time::milliseconds(heartbeat_random_delay_(rengine_)),
+      [this] { PublishHeartbeat(); });
+
   SendSyncInterest();
   if (lossy_mode_) {
     scheduler_.scheduleEvent(time::milliseconds(10),
@@ -539,13 +545,16 @@ void Node::OnRemoteData(const Data& data) {
   }
 
   ViewID vid = {content_proto.view_num(), content_proto.leader_id()};
+  ProcessHeartbeat(vid, nid);
+
   auto vv = DecodeVV(content_proto.vv());
   ProcessState(nid, seq, vid, vv);
 
   auto content_type = data.getContentType();
   switch (content_type) {
     case kHeartbeat:
-      ProcessHeartbeat(vid, nid);
+      // Nothing to do
+      VSYNC_LOG_TRACE("Recv: Heartbeat packet from nid=" << nid);
       break;
     case kUserData:
       data_signal_(data.shared_from_this());
@@ -582,15 +591,7 @@ void Node::UpdateReceiveWindow(const Name& pfx, const NodeID& nid,
   }
 }
 
-void Node::PublishHeartbeat() {
-  // Schedule next heartbeat event before publishing heartbeat message
-  heartbeat_event_ = scheduler_.scheduleEvent(
-      kHeartbeatInterval +
-          time::milliseconds(heartbeat_random_delay_(rengine_)),
-      [this] { PublishHeartbeat(); });
-
-  PublishData("HELLO", kHeartbeat);
-}
+void Node::PublishHeartbeat() { PublishData("HELLO", kHeartbeat); }
 
 void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
   if (vid != view_id_) {
@@ -601,12 +602,12 @@ void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
 
   auto index = view_info_.GetIndexByID(nid);
   if (!index.second) {
-    VSYNC_LOG_WARN("Unkown node id in received heartbeat: nid=" << nid);
+    VSYNC_LOG_WARN("Unkown node id for heartbeat: nid=" << nid);
     return;
   }
 
-  VSYNC_LOG_INFO("Recv: HEARTBEAT, nid=" << nid << " [index=" << index.first
-                                         << "], view_id=" << vid);
+  VSYNC_LOG_INFO("Update membership: nid=" << nid << " [index=" << index.first
+                                           << "], view_id=" << vid);
   last_heartbeat_[index.first] = time::steady_clock::now();
 }
 
