@@ -23,8 +23,8 @@ namespace vsync {
 void SetInterestLifetime(const time::milliseconds sync_interest_lifetime,
                          const time::milliseconds data_interest_lifetime);
 
-void SetHeartbeatInterval(const time::seconds heartbeat_interval,
-                          const time::seconds leader_election_timeout);
+void SetHeartbeatInterval(const time::milliseconds heartbeat_interval,
+                          const time::milliseconds leader_election_timeout);
 
 class Node {
  public:

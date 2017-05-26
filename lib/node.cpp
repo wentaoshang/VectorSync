@@ -34,16 +34,16 @@ static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
 static constexpr time::milliseconds kDataInterestMaxDelay =
     time::milliseconds(20);
 
-static time::seconds kHeartbeatInterval = time::seconds(60);
+static time::milliseconds kHeartbeatInterval = time::milliseconds(10000);
 static constexpr time::milliseconds kHeartbeatMaxDelay =
     time::milliseconds(100);
-static time::seconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
-static time::seconds kHealthcheckInterval = kHeartbeatInterval;
+static time::milliseconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
+static time::milliseconds kHealthcheckInterval = kHeartbeatInterval;
 // Leader election timeout MUST be smaller than healthcheck interval
-static time::seconds kLeaderElectionTimeoutMax = time::seconds(3);
+static time::milliseconds kLeaderElectionTimeoutMax = time::milliseconds(3000);
 
-void SetHeartbeatInterval(const time::seconds heartbeat_interval,
-                          const time::seconds leader_election_timeout) {
+void SetHeartbeatInterval(const time::milliseconds heartbeat_interval,
+                          const time::milliseconds leader_election_timeout) {
   if (heartbeat_interval <= leader_election_timeout)
     throw std::invalid_argument("Invalid heartbeat interval");
   kHeartbeatInterval = kHealthcheckInterval = heartbeat_interval;
