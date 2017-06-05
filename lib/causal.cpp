@@ -18,7 +18,7 @@ std::shared_ptr<const Data> CONode::PublishCOData(const std::string& content) {
   for (const auto& p : causal_cut_) {
     if (p.second == 0) continue;  // do no encode zero seq#
     auto* entry_proto = evv_proto->add_entry();
-    entry_proto->set_nid(p.first);
+    entry_proto->set_nid(p.first.toUri());
     entry_proto->set_seq(p.second);
     VSYNC_LOG_TRACE("    " << p.first << ':' << p.second);
   }
@@ -27,7 +27,7 @@ std::shared_ptr<const Data> CONode::PublishCOData(const std::string& content) {
   auto d = PublishData(cod_proto.SerializeAsString());
   VSYNC_LOG_TRACE("Publish: COData.Name=" << d->getName());
 
-  causal_cut_[id_] = vector_clock_[idx_];
+  causal_cut_[nid_] = vv_[idx_];
   VSYNC_LOG_TRACE("Update: causal_cut=[");
   for (const auto& p : causal_cut_) {
     VSYNC_LOG_TRACE("    " << p.first << ':' << p.second);
@@ -84,7 +84,7 @@ void CONode::OnNodeData(std::shared_ptr<const Data> data) {
 void CONode::ConsumeCOData(std::shared_ptr<const Data> data, const EVV& evv) {
   const auto& n = data->getName();
   VSYNC_LOG_TRACE("Consume: COData.Name=" << n);
-  NodeID nid = ExtractNodeID(n);
+  auto nid = ExtractNodeID(n);
   uint64_t seq = ExtractSequenceNumber(n);
 
   VSYNC_LOG_TRACE("Before: causal_cut=[");

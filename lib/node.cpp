@@ -1,5 +1,6 @@
 /* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
+#include <algorithm>
 #include <random>
 #include <stdexcept>
 
@@ -28,27 +29,20 @@ void SetInterestLifetime(const time::milliseconds sync_interest_lifetime,
   kViewInfoInterestLifetime = kDataInterestLifetime = data_interest_lifetime;
 }
 
+static constexpr time::milliseconds kDataFreshnessPeriod = time::seconds(3600);
+
 static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
     time::milliseconds(5);
 
-static constexpr time::milliseconds kDataInterestMaxDelay =
-    time::milliseconds(20);
-
-static time::milliseconds kHeartbeatInterval = time::milliseconds(10000);
+static time::milliseconds kHeartbeatInterval = time::milliseconds(1000);
 static constexpr time::milliseconds kHeartbeatMaxDelay =
     time::milliseconds(100);
 static time::milliseconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
 static time::milliseconds kHealthcheckInterval = kHeartbeatInterval;
-// Leader election timeout MUST be smaller than healthcheck interval
-static time::milliseconds kLeaderElectionTimeoutMax = time::milliseconds(3000);
 
-void SetHeartbeatInterval(const time::milliseconds heartbeat_interval,
-                          const time::milliseconds leader_election_timeout) {
-  if (heartbeat_interval <= leader_election_timeout)
-    throw std::invalid_argument("Invalid heartbeat interval");
+void SetHeartbeatInterval(const time::milliseconds heartbeat_interval) {
   kHeartbeatInterval = kHealthcheckInterval = heartbeat_interval;
   kHeartbeatTimeout = 3 * kHeartbeatInterval;
-  kLeaderElectionTimeoutMax = leader_election_timeout;
 }
 
 // Leader will only perform view change when the number of dead members exceeds
@@ -58,24 +52,20 @@ static const size_t kViewChangeThreshold = 1;
 // end of VectorSync parameters
 
 Node::Node(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-           const NodeID& nid, const Name& prefix, uint32_t seed)
+           const Name& nid, uint32_t seed)
     : face_(face),
       scheduler_(scheduler),
       key_chain_(key_chain),
-      id_(name::Component(nid).toUri()),
-      prefix_(prefix),
-      view_id_({1, nid}),
-      view_info_({{nid, prefix}}),
+      nid_(nid),
+      vid_({1, nid}),
+      vinfo_({{nid}}),
       rengine_(seed),
-      data_interest_random_delay_(
-          0, time::milliseconds(kDataInterestMaxDelay).count()),
       heartbeat_random_delay_(10,
                               time::milliseconds(kHeartbeatMaxDelay).count()),
-      leader_election_random_delay_(
-          100, time::milliseconds(kLeaderElectionTimeoutMax).count()),
       heartbeat_event_(scheduler_),
-      healthcheck_event_(scheduler_),
-      leader_election_event_(scheduler_) {}
+      healthcheck_event_(scheduler_) {
+  recv_window_[nid_] = {};
+}
 
 void Node::Start() {
   face_.setInterestFilter(
@@ -85,12 +75,11 @@ void Node::Start() {
       });
 
   face_.setInterestFilter(
-      Name(prefix_).append(id_), std::bind(&Node::OnDataInterest, this, _2),
+      nid_, std::bind(&Node::OnDataInterest, this, _2),
       [this](const Name&, const std::string& reason) {
         throw Error("Failed to register data prefix: " + reason);
       });
 
-  recv_window_[id_].first = prefix_.toUri();
   ResetState();
 
   heartbeat_event_ = scheduler_.scheduleEvent(
@@ -103,35 +92,32 @@ void Node::Start() {
 }
 
 void Node::ResetState() {
-  idx_ = view_info_.GetIndexByID(id_).first;
-  is_leader_ = view_id_.second == id_;
-  view_change_signal_(view_id_, view_info_, is_leader_);
-  VSYNC_LOG_INFO("Move to new view: vid=" << view_id_
-                                          << ", vinfo=" << view_info_);
+  idx_ = vinfo_.GetIndexByID(nid_).first;
+  is_leader_ = vid_.leader_name == nid_;
+  view_change_signal_(vid_, vinfo_, is_leader_);
+  VSYNC_LOG_INFO("Move to new view: vid=" << vid_ << ", vinfo=" << vinfo_);
 
   if (is_leader_) PublishViewInfo();
 
-  vector_clock_.clear();
-  vector_clock_.resize(view_info_.Size());
+  vv_.clear();
+  vv_.resize(vinfo_.Size());
 
   last_heartbeat_.clear();
   auto now = time::steady_clock::now();
-  last_heartbeat_.resize(view_info_.Size(), now);
+  last_heartbeat_.resize(vinfo_.Size(), now);
 
   // Preserve sequence numbers for the nodes that survived the view change
-  for (std::size_t i = 0; i < view_info_.Size(); ++i) {
-    auto nid = view_info_.GetIDByIndex(i).first;
-    auto pfx = view_info_.GetPrefixByIndex(i).first;
+  for (std::size_t i = 0; i < vinfo_.Size(); ++i) {
+    auto nid = vinfo_.GetIDByIndex(i).first;
     auto& rw = recv_window_[nid];
-    if (rw.first.empty()) rw.first = pfx.toUri();
-    vector_clock_[i] = rw.second.UpperBound();
+    vv_[i] = rw.UpperBound();
   }
-  vector_clock_change_signal_(idx_, vector_clock_);
-
+  vector_change_signal_(idx_, vv_);
+  /*
   // Update snapshot to the latest sequence numbers in receive windows
   for (const auto& prw : recv_window_) {
     const auto& nid = prw.first;
-    const auto& rw = prw.second.second;
+    const auto& rw = prw.second;
     auto& s = snapshot_[nid];
     uint64_t seq = rw.UpperBound();
     if (s < seq) s = seq;
@@ -139,36 +125,41 @@ void Node::ResetState() {
   PublishNodeSnapshot();
 
   node_snapshot_bitmap_.clear();
-  node_snapshot_bitmap_.resize(view_info_.Size(), false);
+  node_snapshot_bitmap_.resize(vinfo_.Size(), false);
   node_snapshot_bitmap_[idx_] = true;
-  if (view_info_.Size() == 1) {
+  if (vinfo_.Size() == 1) {
     // We are the only node in this view
     PublishGroupSnapshot();
   }
+  */
 }
 
 bool Node::LoadView(const ViewID& vid, const ViewInfo& vinfo) {
-  auto p = vinfo.GetIndexByID(id_);
+  auto lp = vinfo.GetIndexByID(vid.leader_name);
+  if (!lp.second)
+    throw Error("Leader " + vid.leader_name.toUri() + " not in vinfo");
+  if (lp.first != vinfo.Size() - 1)
+    throw Error("Leader " + vid.leader_name.toUri() +
+                " is not ordered highest by name in vinfo");
+
+  auto p = vinfo.GetIndexByID(nid_);
   if (!p.second) {
-    VSYNC_LOG_WARN("View info does not contain self node ID " << id_);
+    VSYNC_LOG_WARN("View info does not contain self node name " << nid_);
     return false;
   }
 
   idx_ = p.first;
-  view_id_ = vid;
-  view_info_ = vinfo;
+  vid_ = vid;
+  vinfo_ = vinfo;
   ResetState();
 
   return true;
 }
 
-void Node::DoViewChange(const ViewID& vid,
-                        std::shared_ptr<const Interest> pending_sync_interest) {
-  const auto& view_num = vid.first;
-  const auto& leader_id = vid.second;
-  if (view_num > view_id_.first ||
-      (is_leader_ && ((view_num < view_id_.first && leader_id != id_) ||
-                      (view_num == view_id_.first && leader_id < id_)))) {
+void Node::DoViewChange(const ViewID& vid) {
+  const auto& view_num = vid.view_num;
+  const auto& leader_name = vid.leader_name;
+  if (view_num > vid_.view_num || (is_leader_ && nid_ > leader_name)) {
     // Fetch view info
     auto n = MakeViewInfoName(vid);
     // Suppress this interest if this view info has been received before
@@ -177,17 +168,14 @@ void Node::DoViewChange(const ViewID& vid,
     Interest i(n, kViewInfoInterestLifetime);
     VSYNC_LOG_TRACE("Send: i.name=" << n);
     face_.expressInterest(
-        i,
-        std::bind(&Node::ProcessViewInfo, this, _1, _2, pending_sync_interest),
+        i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
         [](const Interest&, const lp::Nack&) {},
-        std::bind(&Node::OnViewInfoInterestTimeout, this, _1, 0,
-                  pending_sync_interest));
+        std::bind(&Node::OnViewInfoInterestTimeout, this, _1, 0));
   }
 }
 
-void Node::OnViewInfoInterestTimeout(
-    const Interest& interest, int retry_count,
-    std::shared_ptr<const Interest> pending_sync_interest) {
+void Node::OnViewInfoInterestTimeout(const Interest& interest,
+                                     int retry_count) {
   VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
                                      << ", retry_count=" << retry_count);
   if (retry_count > kInterestMaxRetrans) return;
@@ -195,21 +183,14 @@ void Node::OnViewInfoInterestTimeout(
   Interest i(interest.getName(), kViewInfoInterestLifetime);
   // TBD: increase interest lifetime exponentially?
   face_.expressInterest(
-      i, std::bind(&Node::ProcessViewInfo, this, _1, _2, pending_sync_interest),
+      i, std::bind(&Node::ProcessViewInfo, this, _1, _2),
       [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnViewInfoInterestTimeout, this, _1, retry_count + 1,
-                pending_sync_interest));
+      std::bind(&Node::OnViewInfoInterestTimeout, this, _1, retry_count + 1));
 }
 
-void Node::ProcessViewInfo(
-    const Interest& vinterest, const Data& vinfo,
-    std::shared_ptr<const Interest> pending_sync_interest) {
+void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
   const auto& n = vinfo.getName();
   VSYNC_LOG_TRACE("Recv: d.name=" << n);
-  if (n.size() != vinterest.getName().size()) {
-    VSYNC_LOG_WARN("Invalid view info name " << n);
-    return;
-  }
 
   const auto& content = vinfo.getContent();
   ViewInfo view_info;
@@ -218,87 +199,82 @@ void Node::ProcessViewInfo(
     return;
   }
 
-  VSYNC_LOG_TRACE("Recv: " << view_info);
+  ViewID vid = ExtractViewID(n);
+  VSYNC_LOG_TRACE("Recv: vid=" << vid << ", vinfo=" << view_info);
 
   // Store a local copy of view info data
   data_store_[n] = vinfo.shared_from_this();
   // TODO: verify view info using common trust anchor
 
-  ViewID vid = ExtractViewID(n);
-  if (vid.first > view_id_.first) {
-    // Move to higher view using received view info
+  if (vid.view_num > vid_.view_num &&
+      (!is_leader_ || (is_leader_ && nid_ < vid.leader_name))) {
+    // Move to higher-numbered view using received view info if we are not
+    // leader, or if we are leader but has a smaller name
     if (!LoadView(vid, view_info)) {
       VSYNC_LOG_WARN("Cannot load received view: vinfo=" << view_info);
       return;
     }
 
-    // Cancel any leader election event
-    leader_election_event_.cancel();
-
-    // Process pending sync interest
-    SendDataInterest(pending_sync_interest->getName());
-  } else if (is_leader_ &&
-             ((vid.first < view_id_.first && vid.second != id_) ||
-              (vid.first == view_id_.first && vid.second < id_))) {
-    if (!view_info_.Merge(view_info) && vid.first < view_id_.first) {
-      // No need to do view change since there is no change to group membership
-      // and current view number is higher than the received one. The node with
-      // lower view number will move to higher view anyway.
+    // Process pending state vector published in the new view
+  } else if (is_leader_ && nid_ > vid.leader_name) {
+    // Merge the two views if we are leader with a larger name
+    bool r = vinfo_.Merge(view_info);
+    if (!r && vid.view_num < vid_.view_num) {
+      // No need to do view change since there is no change to group
+      // membership and current view number is higher than the received one.
+      // The node with lower view number will move to higher view anyway.
       VSYNC_LOG_INFO(
           "Received view info has no new member and we are in a higher view: "
-          << "received vinfo = " << view_info << ", our vid = " << view_id_);
+          << "received vinfo = " << view_info << ", our vid = " << vid_);
       return;
     }
 
-    ++view_id_.first;
+    vid_.view_num = std::max(vid_.view_num, vid.view_num) + 1;
     ResetState();
-
-    // Process pending sync interest
-    SendDataInterest(pending_sync_interest->getName());
   }
-}
+}  // namespace vsync
 
 void Node::PublishViewInfo() {
-  auto n = MakeViewInfoName(view_id_);
-  VSYNC_LOG_TRACE("Publish: d.name=" << n << ", vinfo=" << view_info_);
+  auto n = MakeViewInfoName(vid_);
+  VSYNC_LOG_TRACE("Publish: d.name=" << n << ", vinfo=" << vinfo_);
   std::string content;
-  view_info_.Encode(content);
+  vinfo_.Encode(content);
   std::shared_ptr<Data> d = std::make_shared<Data>(n);
-  d->setFreshnessPeriod(time::seconds(3600));
+  d->setFreshnessPeriod(kDataFreshnessPeriod);
   d->setContent(reinterpret_cast<const uint8_t*>(content.data()),
                 content.size());
   d->setContentType(kViewInfo);
-  key_chain_.sign(*d, signingWithSha256());
+  key_chain_.sign(*d);
   data_store_[n] = d;
 }
 
 std::shared_ptr<const Data> Node::PublishData(const std::string& content,
                                               uint32_t type) {
-  uint64_t seq = ++vector_clock_[idx_];
-  vector_clock_change_signal_(idx_, vector_clock_);
+  uint64_t seq = ++vv_[idx_];
+  vector_change_signal_(idx_, vv_);
 
-  recv_window_[id_].second.Insert(seq);
+  recv_window_[nid_].Insert(seq);
 
-  auto n = MakeDataName(prefix_, id_, seq);
+  auto n = MakeDataName(nid_, seq);
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
-  data->setFreshnessPeriod(time::seconds(3600));
+  data->setFreshnessPeriod(kDataFreshnessPeriod);
 
   proto::Content content_proto;
-  content_proto.set_view_num(view_id_.first);
-  content_proto.set_leader_id(view_id_.second);
-  EncodeVV(vector_clock_, content_proto.mutable_vv());
+  content_proto.set_view_num(vid_.view_num);
+  content_proto.set_leader_name(vid_.leader_name.toUri());
+  EncodeVV(vv_, content_proto.mutable_vv());
   content_proto.set_content(content);
   const std::string& content_proto_str = content_proto.SerializeAsString();
   data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
                    content_proto_str.size());
   data->setContentType(type);
-  key_chain_.sign(*data, signingWithSha256());
+  key_chain_.sign(*data);
 
   data_store_[n] = data;
 
   VSYNC_LOG_TRACE("Publish: d.name=" << n << ", content_type=" << type
-                                     << ", view_id=" << view_id_
-                                     << ", vector_clock=" << vector_clock_);
+                                     << ", view_id=" << vid_
+                                     << ", vector=" << vv_);
 
   // (Re)schedule next heartbeat event before publishing data
   heartbeat_event_ = scheduler_.scheduleEvent(
@@ -307,43 +283,22 @@ std::shared_ptr<const Data> Node::PublishData(const std::string& content,
       [this] { PublishHeartbeat(); });
 
   SendSyncInterest();
-  if (lossy_mode_) {
-    scheduler_.scheduleEvent(time::milliseconds(10),
-                             [this] { SendSyncInterest(); });
-    scheduler_.scheduleEvent(time::milliseconds(20),
-                             [this] { SendSyncInterest(); });
-  }
 
   return data;
 }
 
-void Node::SendDataInterest(const Name& sync_interest_name) {
-  auto nid = sync_interest_name.get(-4).toUri();
-  uint64_t seq = ExtractSequenceNumber(sync_interest_name);
-
-  auto p_idx = view_info_.GetIndexByID(nid);
-  if (!p_idx.second) {
-    VSYNC_LOG_INFO("Unknown node id in sync interest name: " << nid);
-    return;
-  }
-  auto p_pfx = view_info_.GetPrefixByIndex(p_idx.first);
-  if (!p_pfx.second) {
-    VSYNC_LOG_ERROR("Cannot get prefix for node id " << nid);
-    return;
-  }
-
-  SendDataInterest(p_pfx.first, nid, seq);
-}
-
-void Node::SendDataInterest(const Name& prefix, const NodeID& nid,
-                            uint64_t seq) {
-  auto in = MakeDataName(prefix, nid, seq);
-  Interest inst(in, kDataInterestLifetime);
-  VSYNC_LOG_TRACE("Send: i.name=" << in);
+void Node::SendDataInterest(const Name& data_name) {
+  Interest inst(data_name, kDataInterestLifetime);
+  VSYNC_LOG_TRACE("Send: i.name=" << data_name);
   face_.expressInterest(inst, std::bind(&Node::OnRemoteData, this, _2),
                         [](const Interest&, const lp::Nack&) {},
                         std::bind(&Node::OnDataInterestTimeout, this, _1, 0));
   // TODO: use link when fetching missing data
+}
+
+void Node::SendDataInterest(const Name& nid, uint64_t seq) {
+  auto dn = MakeDataName(nid, seq);
+  SendDataInterest(dn);
 }
 
 void Node::OnDataInterestTimeout(const Interest& interest, int retry_count) {
@@ -373,12 +328,11 @@ void Node::OnDataInterest(const Interest& interest) {
 }
 
 void Node::SendSyncInterest() {
-  uint64_t seq = vector_clock_[idx_];
-  auto n = MakeSyncInterestName(id_, view_id_, seq);
+  uint64_t seq = vv_[idx_];
+  auto n = MakeSyncInterestName(vid_, nid_, seq);
 
   Interest i(n, kSyncInterestLifetime);
   i.setMustBeFresh(true);
-  if (lossy_mode_) i.setInterestLifetime(time::milliseconds(5));
 
   face_.expressInterest(
       i,
@@ -394,7 +348,6 @@ void Node::SendSyncInterest() {
 void Node::OnSyncInterestTimeout(const Interest& interest, int retry_count) {
   VSYNC_LOG_TRACE("Timeout: i.name=" << interest.getName()
                                      << ", retry_count=" << retry_count);
-  if (lossy_mode_) return;  // do not handle interest timeout in lossy mode
   if (retry_count > kInterestMaxRetrans) return;
 
   VSYNC_LOG_TRACE("Retrans: i.name=" << interest.getName());
@@ -415,7 +368,7 @@ void Node::SendSyncReply(const Name& n) {
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(kSyncReplyFreshnessPeriod);
   std::string vv_encode;
-  EncodeVV(vector_clock_, vv_encode);
+  EncodeVV(vv_, vv_encode);
   data->setContent(reinterpret_cast<const uint8_t*>(vv_encode.data()),
                    vv_encode.size());
   data->setContentType(kSyncReply);
@@ -428,12 +381,10 @@ void Node::OnSyncInterest(const Interest& interest) {
   VSYNC_LOG_TRACE("Recv: i.name=" << n);
 
   // Check sync interest name size
-  if (n.size() < kSyncPrefix.size() + 4) {
+  if (n.size() < kSyncPrefix.size() + 3) {
     VSYNC_LOG_WARN("Invalid sync interest name: " << n);
     return;
   }
-
-  auto vi = ExtractViewID(n);
 
   auto dispatcher = n.get(kSyncPrefix.size()).toUri();
   if (dispatcher == "vinfo") {
@@ -442,78 +393,69 @@ void Node::OnSyncInterest(const Interest& interest) {
       VSYNC_LOG_TRACE("Send: d.name=" << iter->second->getName());
       face_.put(*iter->second);
     }
-  } else if (dispatcher == "notify") {
+  } else if (dispatcher == "vid") {
     // Generate sync reply to notify receipt of sync interest
     SendSyncReply(n);
 
+    // Fetch data
+    auto dn = ExtractDataName(n);
+    if (!dn.empty()) SendDataInterest(dn);
+
     // Check view id
-    if (vi != view_id_) {
-      DoViewChange(vi, interest.shared_from_this());
-      return;
-    }
-
-    // Add a random delay before responding to sync interest
-    scheduler_.scheduleEvent(
-        time::milliseconds(data_interest_random_delay_(rengine_)),
-        [this, n] { SendDataInterest(n); });
-
+    auto vi = ExtractViewID(n);
+    if (vi != vid_) DoViewChange(vi);
   } else {
     VSYNC_LOG_WARN("Unknown dispatch tag in interest name: " << dispatcher);
   }
 }
 
-void Node::ProcessState(const NodeID& nid, uint64_t seq, const ViewID& vid,
+void Node::ProcessState(const Name& nid, uint64_t seq, const ViewID& vid,
                         const VersionVector& vv) {
   // Check view id
-  if (vid != view_id_) {
+  if (vid != vid_) {
     VSYNC_LOG_INFO("Ignore version vector from different view: " << vid);
     return;
   }
 
   // Detect invalid version vector
-  if (vv.size() != vector_clock_.size()) {
-    VSYNC_LOG_INFO("Ignore version vector of different size: " << vv.size());
+  if (vv.size() != vv_.size()) {
+    VSYNC_LOG_INFO("Ignore version vector of different size: " << vv);
     return;
   }
 
-  VSYNC_LOG_TRACE("Recv: vector_clock=" << vv);
+  VSYNC_LOG_TRACE("Recv: vector=" << vv);
 
-  if (vv[idx_] > vector_clock_[idx_]) {
+  if (vv[idx_] > vv_[idx_]) {
     VSYNC_LOG_INFO(
         "Ignore vector clock with larger self sequence number: " << vv);
   }
 
   // Process version vector
-  VersionVector old_vv = vector_clock_;
-  vector_clock_ = Merge(old_vv, vv);
-  vector_clock_change_signal_(idx_, vector_clock_);
-
-  VSYNC_LOG_INFO("Update: view_id=" << view_id_
-                                    << ", vector_clock=" << vector_clock_);
+  VersionVector old_vv = vv_;
+  vv_ = Join(old_vv, vv);
+  vector_change_signal_(idx_, vv_);
+  VSYNC_LOG_INFO("Update: view_id=" << vid_ << ", vector=" << vv_);
 
   // Fetch missing data
-  for (std::size_t i = 0; i != vv.size(); ++i) {
+  for (std::size_t i = 0; i != vv_.size(); ++i) {
     if (i == idx_) continue;
 
-    // Compare old_vv[i] with vv[i] before calculating "old_vv[i] + 1" to avoid
+    // Compare old_vv[i] with vv_[i] before calculating "old_vv[i] + 1" to avoid
     // unsigned integer overflow (not possible in practice since we use 64-bit)
-    if (old_vv[i] < vv[i]) {
-      auto nid_pair = view_info_.GetIDByIndex(i);
+    if (old_vv[i] < vv_[i]) {
+      auto nid_pair = vinfo_.GetIDByIndex(i);
       if (!nid_pair.second)
         throw Error("Cannot get node ID for index " + std::to_string(i));
 
-      auto pfx_pair = view_info_.GetPrefixByIndex(i);
-      if (!pfx_pair.second)
-        throw Error("Cannot get node prefix for index " + std::to_string(i));
-
       if (nid == nid_pair.first) {
-        if (vv[i] != seq) {
-          throw Error("Node " + nid + " did not announce latest data: " +
-                      std::to_string(vv[i]));
+        if (vv_[i] != seq) {
+          throw Error(
+              "Node " + nid.toUri() +
+              " did not announce latest data: " + std::to_string(vv_[i]));
         }
       } else {
-        for (uint64_t s = old_vv[i] + 1; s <= vv[i]; ++s) {
-          SendDataInterest(pfx_pair.first, nid_pair.first, s);
+        for (uint64_t s = old_vv[i] + 1; s <= vv_[i]; ++s) {
+          SendDataInterest(nid_pair.first, s);
         }
       }
     }
@@ -536,11 +478,10 @@ void Node::OnRemoteData(const Data& data) {
     return;
   }
 
-  auto pfx = ExtractNodePrefix(n);
   auto nid = ExtractNodeID(n);
   auto seq = ExtractSequenceNumber(n);
 
-  UpdateReceiveWindow(pfx, nid, seq);
+  UpdateReceiveWindow(nid, seq);
 
   // Store a local copy of received data
   data_store_[n] = data.shared_from_this();
@@ -552,7 +493,7 @@ void Node::OnRemoteData(const Data& data) {
     return;
   }
 
-  ViewID vid = {content_proto.view_num(), content_proto.leader_id()};
+  ViewID vid = {content_proto.view_num(), content_proto.leader_name()};
   ProcessHeartbeat(vid, nid);
 
   auto vv = DecodeVV(content_proto.vv());
@@ -568,18 +509,15 @@ void Node::OnRemoteData(const Data& data) {
       data_signal_(data.shared_from_this());
       break;
     case kNodeSnapshot:
-      ProcessNodeSnapshot(content_proto.content(), nid);
+      // ProcessNodeSnapshot(content_proto.content(), nid);
       break;
     default:
       VSYNC_LOG_WARN("Unknown content type in remote data: " << content_type);
   }
 }
 
-void Node::UpdateReceiveWindow(const Name& pfx, const NodeID& nid,
-                               uint64_t seq) {
-  auto& entry = recv_window_[nid];
-  if (entry.first.empty()) entry.first = pfx.toUri();
-  auto& win = entry.second;
+void Node::UpdateReceiveWindow(const Name& nid, uint64_t seq) {
+  auto& win = recv_window_[nid];
 
   // Insert the new seq number into the receive window
   VSYNC_LOG_TRACE("Insert into recv_window[" << nid << "]: seq=" << seq);
@@ -593,24 +531,25 @@ void Node::UpdateReceiveWindow(const Name& pfx, const NodeID& nid,
     return;
   }
 
+  // TODO: let application decide whether to fetch missing data?
   for (auto iter = boost::icl::elements_begin(missing_seq_intervals);
        iter != boost::icl::elements_end(missing_seq_intervals); ++iter) {
-    SendDataInterest(pfx, nid, *iter);
+    SendDataInterest(nid, *iter);
   }
 }
 
 void Node::PublishHeartbeat() { PublishData("HELLO", kHeartbeat); }
 
-void Node::ProcessHeartbeat(const ViewID& vid, const NodeID& nid) {
-  if (vid != view_id_) {
+void Node::ProcessHeartbeat(const ViewID& vid, const Name& nid) {
+  if (vid != vid_) {
     VSYNC_LOG_INFO("Ignore heartbeat for non-current view id "
                    << vid << " from nid=" << nid);
     return;
   }
 
-  auto index = view_info_.GetIndexByID(nid);
+  auto index = vinfo_.GetIndexByID(nid);
   if (!index.second) {
-    VSYNC_LOG_WARN("Unkown node id for heartbeat: nid=" << nid);
+    VSYNC_LOG_WARN("Ignore heartbeat from unkown node: nid=" << nid);
     return;
   }
 
@@ -624,51 +563,54 @@ void Node::DoHealthcheck() {
   healthcheck_event_ = scheduler_.scheduleEvent(kHealthcheckInterval,
                                                 [this] { DoHealthcheck(); });
 
+  // Check heartbeat status of every node
   auto now = time::steady_clock::now();
-  if (is_leader_) {
-    std::unordered_set<NodeID> dead_nodes;
-    for (std::size_t i = 0; i != view_info_.Size(); ++i) {
-      if (i == idx_) continue;
 
-      if (last_heartbeat_[i] + kHeartbeatTimeout < now) {
-        auto p = view_info_.GetIDByIndex(i);
-        if (!p.second)
-          throw Error("Cannot find node ID for index " + std::to_string(i));
+  std::unordered_set<Name> dead_nodes;
+  for (std::size_t i = 0; i != vinfo_.Size(); ++i) {
+    if (i == idx_) continue;
 
-        dead_nodes.insert(p.first);
-        VSYNC_LOG_INFO("Found dead node: " << p.first);
-      }
+    if (last_heartbeat_[i] + kHeartbeatTimeout < now) {
+      auto p = vinfo_.GetIDByIndex(i);
+      if (!p.second)
+        throw Error("Cannot find node ID for index " + std::to_string(i));
+
+      dead_nodes.insert(p.first);
+      VSYNC_LOG_INFO("Found dead node: " << p.first);
     }
+  }
+
+  if (is_leader_) {
     if (dead_nodes.size() >= kViewChangeThreshold) {
-      view_info_.Remove(dead_nodes);
-      ++view_id_.first;
+      vinfo_.Remove(dead_nodes);
+      ++vid_.view_num;
       ResetState();
     }
   } else {
-    const auto& leader_id = view_id_.second;
-    auto p = view_info_.GetIndexByID(leader_id);
-    if (!p.second)
-      throw Error("Cannot find node index for leader " + leader_id);
+    const auto& leader_name = vid_.leader_name;
 
-    if (last_heartbeat_[p.first] + kHeartbeatTimeout < now) {
-      VSYNC_LOG_INFO("Found dead leader: " << leader_id);
-      // Start leader election timer
-      leader_election_event_ = scheduler_.scheduleEvent(
-          time::milliseconds(leader_election_random_delay_(rengine_)),
-          [this] { ProcessLeaderElectionTimeout(); });
+    if (dead_nodes.find(leader_name) != dead_nodes.end()) {
+      VSYNC_LOG_INFO("Current leader " << leader_name << " is dead");
+      // Find next live member with highest-ordered name
+      assert(vinfo_.Size() > 1);
+      std::size_t i = vinfo_.Size();
+      for (; i != 0; --i) {
+        if (i - 1 == idx_ || last_heartbeat_[i - 1] + kHeartbeatTimeout >= now)
+          break;
+      }
+
+      if (i - 1 == idx_) {
+        // We are the next leader
+        VSYNC_LOG_INFO("Take leader role");
+        vinfo_.Remove(dead_nodes);
+        vid_ = {vid_.view_num + 1, nid_};
+        ResetState();
+      }
     }
   }
 }
 
-void Node::ProcessLeaderElectionTimeout() {
-  VSYNC_LOG_INFO("Leader election timer goes off");
-  // Remove leader from the view
-  view_info_.Remove({view_id_.second});
-  // Set self as leader for the new view
-  view_id_ = {view_id_.first + 1, id_};
-  ResetState();
-}
-
+/*
 void Node::PublishNodeSnapshot() {
   proto::Snapshot ss_proto;
   ss_proto.set_view_num(view_id_.first);
@@ -786,6 +728,6 @@ void Node::PublishGroupSnapshot() {
   key_chain_.sign(*d, signingWithSha256());
   data_store_[n] = d;
 }
-
+*/
 }  // namespace vsync
 }  // namespace ndn

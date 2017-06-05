@@ -29,7 +29,7 @@ static std::pair<TONode::Action, bool> ParseAction(const Block& content) {
 }
 
 void TONode::CountVote(TONode::State& state) {
-  std::unordered_map<NodeID, size_t> counts;
+  std::unordered_map<Name, size_t> counts;
   for (const auto& v : state.votes) {
     ++counts[v.second];
   }
@@ -57,7 +57,7 @@ void TONode::CountVote(TONode::State& state) {
 
 void TONode::OnNodeData(std::shared_ptr<const Data> data) {
   VSYNC_LOG_TRACE("Recv: TOData.Name=" << data->getName());
-  NodeID src = ExtractNodeID(data->getName());
+  auto src = ExtractNodeID(data->getName());
   if (group_.find(src) == group_.end()) {
     VSYNC_LOG_WARN("TOData producer " << src << " is not in consensus group");
     return;
@@ -89,7 +89,8 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
 
       // If we receive a proposal and we have not voted or proposed for the
       // same number, vote for the received proposal.
-      if (action.param == src && state.votes.find(id_) == state.votes.end()) {
+      if (action.param == src.toUri() &&
+          state.votes.find(nid_) == state.votes.end()) {
         VSYNC_LOG_TRACE("Cast vote: num=" << action.num
                                           << ", param=" << action.param);
         proto::TOData tod_proto;
@@ -98,7 +99,7 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
         tod_proto.set_param(action.param);
         PublishData(tod_proto.SerializeAsString());
         // Record our own vote
-        state.votes[id_] = action.param;
+        state.votes[nid_] = action.param;
       }
 
       // If the number of received votes is less than the majority size, no
@@ -112,7 +113,7 @@ void TONode::OnNodeData(std::shared_ptr<const Data> data) {
       // If the consensus has concluded and we voted for that number, check if
       // we are the winner.
       if (last_proposed_number_ == action.num) {
-        if (state.winner == id_) {
+        if (state.winner == nid_) {
           VSYNC_LOG_INFO("We won majority vote for number " << action.num);
           // Publish uncommitted data under action.num
           proto::TOData tod_proto;
@@ -164,12 +165,12 @@ void TONode::MakeNewProposal() {
   proto::TOData tod_proto;
   tod_proto.set_cmd(proto::TOData::VOTE);
   tod_proto.set_num(next_number);
-  tod_proto.set_param(id_);
+  tod_proto.set_param(nid_.toUri());
   auto d = PublishData(tod_proto.SerializeAsString());
-  VSYNC_LOG_TRACE("Vote: num=" << next_number << ", param=" << id_
+  VSYNC_LOG_TRACE("Vote: num=" << next_number << ", param=" << nid_
                                << ", TOData.Name=" << d->getName());
   last_proposed_number_ = next_number;
-  consensus_state_[next_number].votes[id_] = id_;
+  consensus_state_[next_number].votes[nid_] = nid_;
 }
 
 void TONode::ConsumeTOData() {
@@ -186,7 +187,7 @@ void TONode::ConsumeTOData() {
 
     if (!iter->second.winner.empty()) {
       if (iter->first == last_proposed_number_) {
-        assert(iter->second.winner == id_);
+        assert(iter->second.winner == nid_);
         if (after_commit_cb_)
           after_commit_cb_(iter->first, iter->second.committed_data);
         last_proposed_number_ = 0;

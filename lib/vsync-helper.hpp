@@ -18,7 +18,7 @@ namespace std {
 
 inline std::ostream& operator<<(std::ostream& os,
                                 const ndn::vsync::ViewID& vi) {
-  return os << '(' << vi.first << ',' << vi.second << ')';
+  return os << '(' << vi.view_num << ',' << vi.leader_name << ')';
 }
 
 inline std::ostream& operator<<(std::ostream& os,
@@ -41,13 +41,13 @@ namespace vsync {
 
 inline std::string ToString(const ViewID& vi) {
   std::ostringstream os;
-  os << '(' << vi.first << ',' << vi.second << ')';
+  os << '(' << vi.view_num << ',' << vi.leader_name << ')';
   return os.str();
 }
 
 // Helpers for version vector processing
 
-inline VersionVector Merge(const VersionVector& v1, const VersionVector& v2) {
+inline VersionVector Join(const VersionVector& v1, const VersionVector& v2) {
   if (v1.size() != v2.size()) return {};
 
   VersionVector res(v1.size());
@@ -111,57 +111,66 @@ struct VVCompare {
 
 // Helpers for interest processing
 
-inline Name MakeSyncInterestName(const NodeID& nid, const ViewID& vid,
+inline Name MakeSyncInterestName(const ViewID& vid, const Name& nid,
                                  uint64_t seq) {
-  // name = /[vsync_prefix]/notify/[node_id]/[view_num]/[leader_id]/[seq_num]
+  // name = /[vsync_prefix]/vid/[view_num]/[leader_name]/%DA/[nid]/[seq]
   Name n(kSyncPrefix);
-  n.append("notify")
+  n.append("vid")
+      .appendNumber(vid.view_num)
+      .append(vid.leader_name)
+      .append(kDataNameMarker)
       .append(nid)
-      .appendNumber(vid.first)
-      .append(vid.second)
       .appendNumber(seq);
   return n;
 }
 
 inline Name MakeViewInfoName(const ViewID& vid) {
-  // name = /[vsync_prefix]/vinfo/[view_num]/[leader_id]/%00
-  // %00 is appended so that view_num is 3rd to last component and leader_id is
-  // 2nd to last
+  // name = /[vsync_prefix]/vinfo/[view_num]/[leader_name]
   Name n(kSyncPrefix);
-  n.append("vinfo").appendNumber(vid.first).append(vid.second).appendNumber(0);
+  n.append("vinfo").appendNumber(vid.view_num).append(vid.leader_name);
   return n;
 }
 
 inline Name MakeSnapshotName(const ViewID& vid) {
-  // name = /[vsync_prefix]/snapshot/[view_num]/[leader_id]/%00
-  // %00 is appended so that view_num is 3rd to last component and leader_id is
-  // 2nd to last
+  // name = /[vsync_prefix]/snapshot/[view_num]/[leader_id]
   Name n(kSyncPrefix);
-  n.append("snapshot")
-      .appendNumber(vid.first)
-      .append(vid.second)
-      .appendNumber(0);
+  n.append("snapshot").appendNumber(vid.view_num).append(vid.leader_name);
   return n;
 }
 
 inline ViewID ExtractViewID(const Name& n) {
-  uint64_t view_num = n.get(-3).toNumber();
-  std::string leader_id = n.get(-2).toUri();
-  return {view_num, leader_id};
+  size_t l = kSyncPrefix.size() + 1;
+  size_t d = l;
+  for (; d < n.size(); ++d) {
+    if (n.get(d) == kDataNameMarker) break;
+  }
+  uint64_t view_num = n.get(l).toNumber();
+  auto leader_name = n.getSubName(l + 1, d - l - 1);
+  return {view_num, leader_name};
+}
+
+inline Name ExtractDataName(const Name& n) {
+  size_t l = kSyncPrefix.size();
+  size_t d = l;
+  for (; d < n.size(); ++d) {
+    if (n.get(d) == kDataNameMarker) break;
+  }
+  if (d == n.size())
+    return {};
+  else
+    return n.getSubName(d + 1);
 }
 
 // Helpers for data processing
 
-inline Name MakeDataName(const Name& prefix, const NodeID& nid, uint64_t seq) {
-  // name = /[node_prefix]/[node_id]/[seq_num]
-  Name n(prefix);
-  n.append(nid).appendNumber(seq);
+inline Name MakeDataName(const Name& nid, uint64_t seq) {
+  // name = /[nid]/[seq_num]
+  Name n(nid);
+  n.appendNumber(seq);
   return n;
 }
 
-inline Name ExtractNodePrefix(const Name& n) { return n.getPrefix(-2); }
-
-inline NodeID ExtractNodeID(const Name& n) { return n.get(-2).toUri(); }
+inline Name ExtractNodeID(const Name& n) { return n.getPrefix(-1); }
 
 inline uint64_t ExtractSequenceNumber(const Name& n) {
   return n.get(-1).toNumber();

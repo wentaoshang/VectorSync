@@ -52,28 +52,32 @@ def build(bld):
                 source = 'examples/simple.cpp',
                 includes = 'examples',
                 install_path = None,
-                use = 'NDN_CXX BOOST vsync')
+                use = 'NDN_CXX BOOST vsync',
+                cxxflags = '-DBOOST_LOG_DYN_LINK')
 
     bld.program(target = 'simple-fifo',
                 name = 'simple-fifo',
                 source = 'examples/simple-fifo.cpp',
                 includes = 'examples',
                 install_path = None,
-                use = 'NDN_CXX BOOST vsync')
+                use = 'NDN_CXX BOOST vsync',
+                cxxflags = '-DBOOST_LOG_DYN_LINK')
 
     bld.program(target = 'simple-causal',
                 name = 'simple-causal',
                 source = 'examples/simple-causal.cpp',
                 includes = 'examples',
                 install_path = None,
-                use = 'NDN_CXX BOOST vsync')
+                use = 'NDN_CXX BOOST vsync',
+                cxxflags = '-DBOOST_LOG_DYN_LINK')
 
     bld.program(target = 'simple-total',
                 name = 'simple-total',
                 source = 'examples/simple-total.cpp',
                 includes = 'examples',
                 install_path = None,
-                use = 'NDN_CXX BOOST vsync')
+                use = 'NDN_CXX BOOST vsync',
+                cxxflags = '-DBOOST_LOG_DYN_LINK')
 
     # bld.program(target = 'kv-store',
     #             name = 'kv-store',

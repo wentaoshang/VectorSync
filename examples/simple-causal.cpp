@@ -1,10 +1,12 @@
 /* -*- Mode:C++; c-file-style:"google"; indent-tabs-mode:nil; -*- */
 
 #include <functional>
-#include <iostream>
 #include <random>
 
 #include "causal.hpp"
+#include "logging.hpp"
+
+VSYNC_LOG_DEFINE(ndn.vsync.examples.SimpleCONode);
 
 namespace ndn {
 namespace vsync {
@@ -12,16 +14,17 @@ namespace examples {
 
 class SimpleCONode {
  public:
-  SimpleCONode(const NodeID& nid, const Name& prefix, uint32_t seed)
+  SimpleCONode(const Name& nid, uint32_t seed)
       : face_(io_service_),
         scheduler_(io_service_),
-        node_(face_, scheduler_, key_chain_, nid, prefix, seed),
+        node_(face_, scheduler_, key_chain_, nid, seed),
         rengine_(seed),
         rdist_(500, 10000) {
     node_.ConnectCODataSignal(std::bind(&SimpleCONode::OnData, this, _1));
   }
 
   void Start() {
+    node_.Start();
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
                              [this] { PublishData(); });
     face_.processEvents();
@@ -29,11 +32,14 @@ class SimpleCONode {
 
  private:
   void OnData(std::shared_ptr<const Data> data) {
-    std::cout << "Upcall OnData: Name=" << data->getName() << std::endl;
+    VSYNC_LOG_TRACE("OnData: Name=" << data->getName());
   }
 
   void PublishData() {
-    node_.PublishCOData("Hello from " + node_.GetNodeID());
+    std::string msg =
+        node_.GetNodeID().toUri() + ":" + std::to_string(++counter_);
+    auto data = node_.PublishData(msg);
+    VSYNC_LOG_TRACE("PublishData: Name=" << data->getName());
     scheduler_.scheduleEvent(time::milliseconds(rdist_(rengine_)),
                              [this] { PublishData(); });
   }
@@ -44,24 +50,24 @@ class SimpleCONode {
   KeyChain key_chain_;
   CONode node_;
 
+  uint64_t counter_ = 0;
+
   std::mt19937 rengine_;
   std::uniform_int_distribution<> rdist_;
 };
 
 int main(int argc, char* argv[]) {
   // Create a simple view with three nodes
-  if (argc != 3) {
-    std::cerr << "Usage: " << argv[0] << " [node_id] [node_prefix]"
-              << std::endl;
+  if (argc != 2) {
+    std::cerr << "Usage: " << argv[0] << " [node_id]" << std::endl;
     return -1;
   }
 
-  NodeID nid = argv[1];
-  Name prefix(argv[2]);
+  Name nid{argv[1]};
 
   std::random_device rdevice;
 
-  SimpleCONode node(nid, prefix, static_cast<uint32_t>(rdevice()));
+  SimpleCONode node(nid, static_cast<uint32_t>(rdevice()));
   node.Start();
   return 0;
 }

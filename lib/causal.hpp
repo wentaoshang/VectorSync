@@ -20,11 +20,11 @@ class CONode : public Node {
   using CODataCb = CODataSignal::Handler;
 
   // Extended version vector
-  using EVV = std::unordered_map<NodeID, uint64_t>;
+  using EVV = std::unordered_map<Name, uint64_t>;
 
-  CONode(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-         const NodeID& nid, const Name& prefix, uint32_t seed)
-      : Node(face, scheduler, key_chain, nid, prefix, seed) {
+  CONode(Face& face, Scheduler& scheduler, KeyChain& key_chain, const Name& nid,
+         uint32_t seed)
+      : Node(face, scheduler, key_chain, nid, seed) {
     ConnectDataSignal(std::bind(&CONode::OnNodeData, this, _1));
   }
 

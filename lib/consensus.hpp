@@ -27,9 +27,9 @@ class TONode : public Node {
     std::string param;
   };
 
-  TONode(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-         const NodeID& nid, const Name& prefix, uint32_t seed)
-      : Node(face, scheduler, key_chain, nid, prefix, seed) {
+  TONode(Face& face, Scheduler& scheduler, KeyChain& key_chain, const Name& nid,
+         uint32_t seed)
+      : Node(face, scheduler, key_chain, nid, seed) {
     ConnectDataSignal(std::bind(&TONode::OnNodeData, this, _1));
   }
 
@@ -37,7 +37,7 @@ class TONode : public Node {
    * @brief  This is a hack. Consensus group should be based on a pre-configured
    *         view info and view changes should be disabled.
    */
-  void SetConsensusGroup(const std::set<NodeID>& group) {
+  void SetConsensusGroup(const std::set<Name>& group) {
     if (!group_.empty()) return;
     group_ = group;
     majority_size_ = group_.size() / 2 + 1;
@@ -49,9 +49,9 @@ class TONode : public Node {
 
  private:
   struct State {
-    std::unordered_map<NodeID, NodeID> votes;
+    std::unordered_map<Name, Name> votes;
     bool concluded;
-    NodeID winner;
+    Name winner;
     std::shared_ptr<const Data> committed_data;
   };
 
@@ -63,7 +63,7 @@ class TONode : public Node {
 
   void ConsumeTOData();
 
-  std::set<NodeID> group_;
+  std::set<Name> group_;
   size_t majority_size_;
 
   std::map<uint64_t, State> consensus_state_;

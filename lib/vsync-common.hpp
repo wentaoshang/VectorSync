@@ -21,12 +21,22 @@ namespace vsync {
 
 // Type and constant declarations for VectorSync
 
-using NodeID = std::string;
-using ViewID = std::pair<uint64_t, NodeID>;
+struct ViewID {
+  uint64_t view_num;
+  Name leader_name;
+
+  friend bool operator==(const ViewID& l, const ViewID& r) {
+    return l.view_num == r.view_num && l.leader_name == r.leader_name;
+  }
+
+  friend bool operator!=(const ViewID& l, const ViewID& r) { return !(l == r); }
+};
+
 using VersionVector = std::vector<uint64_t>;
-using NodeIndex = std::size_t;
 
 static const Name kSyncPrefix = Name("/ndn/broadcast/vsync");
+static const name::Component kDataNameMarker =
+    name::Component::fromEscapedString("%DA");
 
 }  // namespace vsync
 }  // namespace ndn

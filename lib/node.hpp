@@ -23,16 +23,15 @@ namespace vsync {
 void SetInterestLifetime(const time::milliseconds sync_interest_lifetime,
                          const time::milliseconds data_interest_lifetime);
 
-void SetHeartbeatInterval(const time::milliseconds heartbeat_interval,
-                          const time::milliseconds leader_election_timeout);
+void SetHeartbeatInterval(const time::milliseconds heartbeat_interval);
 
 class Node {
  public:
   using DataSignal = util::Signal<Node, std::shared_ptr<const Data>>;
   using DataCb = DataSignal::Handler;
-  using VectorClockSignal =
+  using VectorChangeSignal =
       util::Signal<Node, std::size_t, const VersionVector&>;
-  using VectorClockChangeCb = VectorClockSignal::Handler;
+  using VectorChangeCb = VectorChangeSignal::Handler;
   using ViewChangeSignal =
       util::Signal<Node, const ViewID&, const ViewInfo&, bool>;
   using ViewChangeCb = ViewChangeSignal::Handler;
@@ -67,36 +66,32 @@ class Node {
    * @param face       Reference to the Face object on which the node runs
    * @param scheduler  Reference to the scheduler associated with @p face
    * @param key_chain  Reference to the KeyChain object used by the application
-   * @param nid        Unique node ID
-   * @param prefix     Data prefix of the node
+   * @param nid        Unique node name (also serves as data prefix)
    * @param seed       Value to seed the PRNG engine
    */
-  Node(Face& face, Scheduler& scheduler, KeyChain& key_chain, const NodeID& nid,
-       const Name& prefix, uint32_t seed);
+  Node(Face& face, Scheduler& scheduler, KeyChain& key_chain, const Name& nid,
+       uint32_t seed);
 
   void SetViewInfo(const ViewID& vid, const ViewInfo& vinfo) {
-    view_id_ = vid;
-    view_info_ = vinfo;
+    vid_ = vid;
+    vinfo_ = vinfo;
   }
 
   void Start();
 
-  const NodeID& GetNodeID() const { return id_; }
+  const Name& GetNodeID() const { return nid_; }
 
-  NodeIndex GetNodeIndex() const { return idx_; }
+  std::size_t GetNodeIndex() const { return idx_; }
 
   bool LoadView(const ViewID& vid, const ViewInfo& vinfo);
-
-  void EnableLossyMode() { lossy_mode_ = true; }
-  void DisableLossyMode() { lossy_mode_ = false; }
 
   std::shared_ptr<const Data> PublishData(const std::string& content,
                                           uint32_t type = kUserData);
 
   void ConnectDataSignal(DataCb cb) { this->data_signal_.connect(cb); }
 
-  void ConnectVectorClockChangeSignal(VectorClockChangeCb cb) {
-    this->vector_clock_change_signal_.connect(cb);
+  void ConnectVectorChangeSignal(VectorChangeCb cb) {
+    this->vector_change_signal_.connect(cb);
   }
 
   void ConnectViewChangeSignal(ViewChangeCb cb) {
@@ -111,86 +106,81 @@ class Node {
 
   inline void SendSyncInterest();
   void OnSyncInterestTimeout(const Interest& interest, int retry_count);
-  void SendDataInterest(const Name& sync_interest_name);
-  inline void SendDataInterest(const Name& prefix, const NodeID& nid,
-                               uint64_t seq);
+  inline void SendDataInterest(const Name& data_name);
+  inline void SendDataInterest(const Name& nid, uint64_t seq);
   void OnDataInterestTimeout(const Interest& interest, int retry_count);
   inline void SendSyncReply(const Name& n);
   inline void PublishHeartbeat();
-  inline void ProcessHeartbeat(const ViewID& vid, const NodeID& nid);
+  inline void ProcessHeartbeat(const ViewID& vid, const Name& nid);
 
   void OnSyncInterest(const Interest& interest);
   void OnDataInterest(const Interest& interest);
   void OnRemoteData(const Data& data);
 
-  void ProcessState(const NodeID& nid, uint64_t seq, const ViewID& vid,
+  void ProcessState(const Name& nid, uint64_t seq, const ViewID& vid,
                     const VersionVector& vv);
 
   /**
    * @brief Adds the sequence number @p seq of the received data into the
    *        receive window of node @p nid and slides the window forward until
-   *        there is a hole (i.e., two non-consecutive esns) in the window.
+   *        there is a hole (i.e., two non-consecutive seq#) in the window.
    *        Then send Data Interests to fetch missising data with sequence
    *        number smaller than @p seq.
    *
-   * @param pfx    Received data from remote node
-   * @param nid    Node ID of the sender of @p data
+   * @param nid    Remote node name
    * @param seq    Sequence number of @p data
    */
-  void UpdateReceiveWindow(const Name& pfx, const NodeID& nid, uint64_t seq);
+  void UpdateReceiveWindow(const Name& nid, uint64_t seq);
 
-  void DoViewChange(const ViewID& vid, std::shared_ptr<const Interest>);
-  void OnViewInfoInterestTimeout(const Interest& interest, int retry_count,
-                                 std::shared_ptr<const Interest>);
-  void ProcessViewInfo(const Interest& vinterest, const Data& vinfo,
-                       std::shared_ptr<const Interest>);
+  /**
+   * @brief Processes the received @p vid and decide if there is a need to
+   *        perform view change.
+   *
+   * @param vid    Received view id that is different from our own
+   */
+  void DoViewChange(const ViewID& vid);
+
+  void OnViewInfoInterestTimeout(const Interest& interest, int retry_count);
+  void ProcessViewInfo(const Interest& vinterest, const Data& vinfo);
   inline void PublishViewInfo();
   void DoHealthcheck();
 
-  inline void ProcessLeaderElectionTimeout();
-
+  /*
   void PublishNodeSnapshot();
   void ProcessNodeSnapshot(const std::string& content, const NodeID& nid);
   void PublishGroupSnapshot();
-
+  */
   Face& face_;
   Scheduler& scheduler_;
   KeyChain& key_chain_;
 
-  const NodeID id_;
-  Name prefix_;
-  NodeIndex idx_ = 0;
+  const Name nid_;
+  std::size_t idx_ = 0;
   bool is_leader_ = true;
-  ViewID view_id_;
-  ViewInfo view_info_;
-  VersionVector vector_clock_;
+  ViewID vid_;
+  ViewInfo vinfo_;
+  VersionVector vv_;
 
-  bool lossy_mode_ = false;
-
-  // Hash table mapping node ID to its node prefix URI and receive window
-  std::unordered_map<NodeID, std::pair<std::string, ReceiveWindow>>
-      recv_window_;
+  // Hash table mapping node ID to its receive window
+  std::unordered_map<Name, ReceiveWindow> recv_window_;
 
   // In-memory store for all data
   std::unordered_map<Name, std::shared_ptr<const Data>> data_store_;
 
   // Snapshot of the entire dataset
-  std::unordered_map<NodeID, uint64_t> snapshot_;
-  std::vector<bool> node_snapshot_bitmap_;
+  // std::unordered_map<Name, uint64_t> snapshot_;
+  // std::vector<bool> node_snapshot_bitmap_;
 
   std::mt19937 rengine_;
-  std::uniform_int_distribution<> data_interest_random_delay_;
   std::uniform_int_distribution<> heartbeat_random_delay_;
-  std::uniform_int_distribution<> leader_election_random_delay_;
 
   util::scheduler::ScopedEventId heartbeat_event_;
   util::scheduler::ScopedEventId healthcheck_event_;
-  util::scheduler::ScopedEventId leader_election_event_;
   std::vector<time::steady_clock::TimePoint> last_heartbeat_;
 
   DataSignal data_signal_;
   ViewChangeSignal view_change_signal_;
-  VectorClockSignal vector_clock_change_signal_;
+  VectorChangeSignal vector_change_signal_;
 };
 
 }  // namespace vsync

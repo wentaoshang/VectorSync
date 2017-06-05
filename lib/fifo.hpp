@@ -20,8 +20,8 @@ class FIFONode : public Node {
   using FIFODataCb = FIFODataSignal::Handler;
 
   FIFONode(Face& face, Scheduler& scheduler, KeyChain& key_chain,
-           const NodeID& nid, const Name& prefix, uint32_t seed)
-      : Node(face, scheduler, key_chain, nid, prefix, seed) {
+           const Name& nid, uint32_t seed)
+      : Node(face, scheduler, key_chain, nid, seed) {
     ConnectDataSignal(std::bind(&FIFONode::OnNodeData, this, _1));
   }
 
@@ -50,8 +50,8 @@ class FIFONode : public Node {
                               uint64_t end);
 
   uint64_t last_fifo_seq_num_;
-  std::unordered_map<NodeID, uint64_t> last_consumed_seq_num_;
-  std::unordered_map<NodeID, FIFOQueue> fifo_data_queue_;
+  std::unordered_map<Name, uint64_t> last_consumed_seq_num_;
+  std::unordered_map<Name, FIFOQueue> fifo_data_queue_;
 
   FIFODataSignal fifo_data_signal_;
 };

@@ -12,8 +12,7 @@ message VV {
 // View Info
 message ViewInfo {
   message Entry {
-    string id = 1;
-    string prefix = 2;
+    string nid = 1;
   }
 
   repeated Entry entry = 1;
@@ -22,7 +21,7 @@ message ViewInfo {
 // Vsync data content
 message Content {
   uint64 view_num = 1;
-  string leader_id = 2;
+  string leader_name = 2;
   VV vv = 3;
   bytes content = 4;
 }
@@ -30,13 +29,12 @@ message Content {
 // Vsync snapshot content
 message Snapshot {
   message Entry {
-    string prefix = 1;
-    string nid = 2;
-    uint64 seq = 3;
+    string nid = 1;
+    uint64 seq = 2;
   }
 
   uint64 view_num = 1;
-  string leader_id = 2;
+  string leader_name = 2;
   repeated Entry entry = 3;
 }
 
