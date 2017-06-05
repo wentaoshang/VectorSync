@@ -67,6 +67,8 @@ int main(int argc, char* argv[]) {
 
   std::random_device rdevice;
 
+  SetHeartbeatInterval(time::milliseconds(1000));
+
   SimpleNode node(nid, static_cast<uint32_t>(rdevice()));
   node.Start();
   return 0;

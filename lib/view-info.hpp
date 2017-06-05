@@ -139,6 +139,8 @@ class ViewInfo {
       member_list_.push_back(m);
     }
 
+    if (old_size == Size()) return false;
+
     // Sort by name
     MemberInfoCompare mi_comp;
     std::sort(member_list_.begin(), member_list_.end(), mi_comp);
@@ -149,7 +151,7 @@ class ViewInfo {
       member_index_map_[member_list_[i].nid] = i;
     }
 
-    return old_size != Size();
+    return true;
   }
 
   void Remove(const std::unordered_set<Name>& nids) {

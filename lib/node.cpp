@@ -34,7 +34,7 @@ static constexpr time::milliseconds kDataFreshnessPeriod = time::seconds(3600);
 static constexpr time::milliseconds kSyncReplyFreshnessPeriod =
     time::milliseconds(5);
 
-static time::milliseconds kHeartbeatInterval = time::milliseconds(1000);
+static time::milliseconds kHeartbeatInterval = time::milliseconds(10000);
 static constexpr time::milliseconds kHeartbeatMaxDelay =
     time::milliseconds(100);
 static time::milliseconds kHeartbeatTimeout = 3 * kHeartbeatInterval;
