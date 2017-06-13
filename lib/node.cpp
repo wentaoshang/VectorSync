@@ -192,6 +192,13 @@ void Node::ProcessViewInfo(const Interest& vinterest, const Data& vinfo) {
   const auto& n = vinfo.getName();
   VSYNC_LOG_TRACE("Recv: d.name=" << n);
 
+  if (data_store_.find(n) != data_store_.end()) {
+    // A node may receive duplicate data if it sends multiple Interests for the
+    // same data. NDN-CXX will not merge the duplicate pending Interests.
+    VSYNC_LOG_WARN("Duplicate view info received: d.name=" << n);
+    return;
+  }
+
   const auto& content = vinfo.getContent();
   ViewInfo view_info;
   if (!view_info.Decode(content.value(), content.value_size())) {
