@@ -341,14 +341,9 @@ void Node::SendSyncInterest() {
   Interest i(n, kSyncInterestLifetime);
   i.setMustBeFresh(true);
 
-  face_.expressInterest(
-      i,
-      [](const Interest& inst, const Data& ack) {
-        VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
-        // TODO: update sync state with the version vector in the reply
-      },
-      [](const Interest&, const lp::Nack&) {},
-      std::bind(&Node::OnSyncInterestTimeout, this, _1, 0));
+  face_.expressInterest(i, std::bind(&Node::ProcessSyncReply, this, _1, _2),
+                        [](const Interest&, const lp::Nack&) {},
+                        std::bind(&Node::OnSyncInterestTimeout, this, _1, 0));
   VSYNC_LOG_TRACE("Send: i.name=" << n);
 }
 
@@ -363,10 +358,7 @@ void Node::OnSyncInterestTimeout(const Interest& interest, int retry_count) {
   // TBD: increase interest lifetime exponentially?
 
   face_.expressInterest(
-      i,
-      [](const Interest& inst, const Data& ack) {
-        VSYNC_LOG_TRACE("Recv: sync interest ack name=" << ack.getName());
-      },
+      i, std::bind(&Node::ProcessSyncReply, this, _1, _2),
       [](const Interest&, const lp::Nack&) {},
       std::bind(&Node::OnSyncInterestTimeout, this, _1, retry_count + 1));
 }
@@ -374,13 +366,36 @@ void Node::OnSyncInterestTimeout(const Interest& interest, int retry_count) {
 void Node::SendSyncReply(const Name& n) {
   std::shared_ptr<Data> data = std::make_shared<Data>(n);
   data->setFreshnessPeriod(kSyncReplyFreshnessPeriod);
-  std::string vv_encode;
-  EncodeVV(vv_, vv_encode);
-  data->setContent(reinterpret_cast<const uint8_t*>(vv_encode.data()),
-                   vv_encode.size());
+
+  proto::Content content_proto;
+  content_proto.set_view_num(vid_.view_num);
+  content_proto.set_leader_name(vid_.leader_name.toUri());
+  EncodeVV(vv_, content_proto.mutable_vv());
+  content_proto.set_content("");
+  const std::string& content_proto_str = content_proto.SerializeAsString();
+  data->setContent(reinterpret_cast<const uint8_t*>(content_proto_str.data()),
+                   content_proto_str.size());
   data->setContentType(kSyncReply);
-  key_chain_.sign(*data, signingWithSha256());
+  key_chain_.sign(*data);
+
   face_.put(*data);
+}
+
+void Node::ProcessSyncReply(const Interest& inst, const Data& reply) {
+  VSYNC_LOG_TRACE("Recv: sync reply name=" << reply.getName());
+
+  // TODO: verify sync reply signature
+
+  const auto& content = reply.getContent();
+  proto::Content content_proto;
+  if (!content_proto.ParseFromArray(content.value(), content.value_size())) {
+    VSYNC_LOG_WARN("Invalid sync reply content format");
+    return;
+  }
+
+  ViewID vid = {content_proto.view_num(), content_proto.leader_name()};
+  auto vv = DecodeVV(content_proto.vv());
+  ProcessState({}, 0, vid, vv);
 }
 
 void Node::OnSyncInterest(const Interest& interest) {

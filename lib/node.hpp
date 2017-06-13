@@ -110,6 +110,8 @@ class Node {
   inline void SendDataInterest(const Name& nid, uint64_t seq);
   void OnDataInterestTimeout(const Interest& interest, int retry_count);
   inline void SendSyncReply(const Name& n);
+  void ProcessSyncReply(const Interest& inst, const Data& reply);
+
   inline void PublishHeartbeat();
   inline void ProcessHeartbeat(const ViewID& vid, const Name& nid);
 
