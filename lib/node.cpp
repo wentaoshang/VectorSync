@@ -82,10 +82,10 @@ void Node::Start() {
 
   ResetState();
 
-  heartbeat_event_ = scheduler_.scheduleEvent(
-      kHeartbeatInterval +
-          time::milliseconds(heartbeat_random_delay_(rengine_)),
-      [this] { PublishHeartbeat(); });
+  // heartbeat_event_ = scheduler_.scheduleEvent(
+  //     kHeartbeatInterval +
+  //         time::milliseconds(heartbeat_random_delay_(rengine_)),
+  //     [this] { PublishHeartbeat(); });
 
   healthcheck_event_ = scheduler_.scheduleEvent(kHealthcheckInterval,
                                                 [this] { DoHealthcheck(); });
@@ -113,6 +113,8 @@ void Node::ResetState() {
     vv_[i] = rw.UpperBound();
   }
   vector_change_signal_(idx_, vv_);
+
+  PublishHeartbeat();
   /*
   // Update snapshot to the latest sequence numbers in receive windows
   for (const auto& prw : recv_window_) {
