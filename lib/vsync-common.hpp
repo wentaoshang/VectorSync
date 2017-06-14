@@ -32,6 +32,13 @@ struct ViewID {
   friend bool operator!=(const ViewID& l, const ViewID& r) { return !(l == r); }
 };
 
+struct VIDCompare {
+  bool operator()(const ViewID& l, const ViewID& r) const {
+    return l.view_num < r.view_num ||
+           (l.view_num == r.view_num && l.leader_name < r.leader_name);
+  }
+};
+
 using VersionVector = std::vector<uint64_t>;
 
 static const Name kSyncPrefix = Name("/ndn/broadcast/vsync");
